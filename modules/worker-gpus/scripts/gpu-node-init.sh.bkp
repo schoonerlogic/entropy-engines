@@ -1,0 +1,225 @@
+#!/bin/bash
+
+set -euo pipefail 
+
+echo "Worker user data script started at $(date) in $(pwd)" # Add timestamp/context
+
+LOG_FILE="/var/log/bootstrap.log"
+exec > >(tee -a $${LOG_FILE}) 3>&1 # Redirect stdout/stderr to log file and console
+
+
+# --- Configuration Variables (Passed from Terraform Templatefile) ---
+# Ensure these are provided by your templatefile data source's 'vars' map
+TARGET_USER="${k8s_user}"
+K8S_VERSION_MM="${k8s_major_minor}" # e.g., 1.29 (used for repo setup)
+# --- End Configuration Variables ---
+
+
+# --- Fetch Instance Private IP (Using IMDSv2) ---
+echo "Fetching instance metadata token (IMDSv2)..."
+# Request a token with a TTL (e.g., 300 seconds = 5 minutes)
+TOKEN=$(curl -s -X PUT "http://169.254.169.254/latest/api/token" -H "X-aws-ec2-metadata-token-ttl-seconds: 300")
+
+# Check if token retrieval failed
+if [ -z "$TOKEN" ]; then
+    echo "FATAL: Could not fetch IMDSv2 token. Is metadata service accessible/configured?"
+    exit 1
+fi
+
+echo "Fetching instance private IP using token..."
+# Use the fetched token in the header for the metadata request
+INSTANCE_PRIVATE_IP=$(curl -s -H "X-aws-ec2-metadata-token: $TOKEN" http://169.254.169.254/latest/meta-data/local-ipv4)
+
+# Check if IP retrieval failed
+if [ -z "$INSTANCE_PRIVATE_IP" ]; then
+    echo "FATAL: Could not determine instance private IP using IMDSv2 token."
+    exit 1
+fi
+# Remember $$ needed here because templatefile processes the script
+echo "Instance private IP: $${INSTANCE_PRIVATE_IP}"
+# --- End Fetch Instance Private IP ---
+
+
+echo "Setting up user: $${TARGET_USER}"
+
+# --- User Setup ---
+# Create user if they don't exist
+if ! id "$${TARGET_USER}" &>/dev/null; then
+    echo "Creating user $${TARGET_USER}..."
+    useradd -m -s /bin/bash "$${TARGET_USER}"
+    passwd -d "$${TARGET_USER}" # Ensure password login is disabled if desired
+else
+    echo "User $${TARGET_USER} already exists."
+fi
+
+# Configure passwordless sudo
+echo "$${TARGET_USER} ALL=(ALL) NOPASSWD:ALL" > "/etc/sudoers.d/$${TARGET_USER}" # Use > instead of | sudo tee
+chmod 440 "/etc/sudoers.d/$${TARGET_USER}"
+
+# Set up SSH key authentication from EC3 metadata
+SSH_PUBLIC_KEY=$(curl -fsSL -H "X-aws-ec2-metadata-token: $TOKEN" http://169.254.169.254/latest/meta-data/public-keys/0/openssh-key || echo "Failed to fetch SSH key from metadata")
+
+if [[ -n "$SSH_PUBLIC_KEY" && "$SSH_PUBLIC_KEY" != "Failed to fetch"* ]]; then
+    USER_SSH_DIR="/home/$${TARGET_USER}/.ssh"
+    mkdir -p "$${USER_SSH_DIR}"
+    echo "$${SSH_PUBLIC_KEY}" > "$${USER_SSH_DIR}/authorized_keys"
+    chmod 700 "$${USER_SSH_DIR}"
+    chmod 600 "$${USER_SSH_DIR}/authorized_keys"
+    chown -R "$${TARGET_USER}:$${TARGET_USER}" "$${USER_SSH_DIR}" # Assuming group name matches username
+    echo "SSH key configured for $${TARGET_USER}"
+else
+    echo "Warning: Could not retrieve SSH public key for $${TARGET_USER}."
+    # Decide if this is a fatal error? If SSH is essential, add 'exit 2'
+fi
+
+
+# Set up SSH key authentication from EC3 metadata
+SSH_PUBLIC_KEY=$(curl -fsSL -H "X-aws-ec2-metadata-token: $TOKEN" http://169.254.169.254/latest/meta-data/public-keys/0/openssh-key || echo "Failed to fetch SSH key from metadata")
+
+if [[ -n "$SSH_PUBLIC_KEY" && "$SSH_PUBLIC_KEY" != "Failed to fetch"* ]]; then
+    # Use $$ for shell variable expansion when processed by templatefile
+    USER_SSH_DIR="/home/$${TARGET_USER}/.ssh"
+    mkdir -p "$${USER_SSH_DIR}" # Assuming root/sudo context
+    # Use $$ for shell variable expansion when processed by templatefile
+    echo "$${SSH_PUBLIC_KEY}" > "$${USER_SSH_DIR}/authorized_keys"
+    chmod 700 "$${USER_SSH_DIR}" # Assuming root/sudo context
+    chmod 600 "$${USER_SSH_DIR}/authorized_keys" # Assuming root/sudo context
+    # Use $$ for shell variable expansion when processed by templatefile
+    chown -R "$${TARGET_USER}:$${TARGET_USER}" "$${USER_SSH_DIR}" # Assuming root/sudo context
+    echo "SSH key configured for $${TARGET_USER}" # Use $$
+else
+    echo "Warning: Could not retrieve SSH public key for $${TARGET_USER}."
+    # Decide if this is a fatal error? If SSH is essential, add 'exit 1'
+fi
+
+
+echo "Starting Kubernetes setup on EC2..."
+
+# Disable swap
+swapoff -a
+sed -i.bak '/ swap / s/^/#/' /etc/fstab # Added .bak for safety
+
+# Enable kernel modules
+echo "Loading kernel modules (overlay, br_netfilter)..."
+sudo modprobe overlay
+sudo modprobe br_netfilter
+# Use sudo tee or simple > if running as root
+echo -e "overlay\nbr_netfilter" | sudo tee /etc/modules-load.d/k8s.conf > /dev/null
+
+# Configure sysctl params for Kubernetes
+echo "Applying sysctl settings for Kubernetes..."
+# Write both required settings to the same k8s-specific file
+# Ensure bridge-nf-call-iptables is set to 1
+# Use sudo tee or simple > if running as root
+# Overwrite file with first setting
+echo "net.bridge.bridge-nf-call-iptables = 1" | sudo tee /etc/sysctl.d/k8s.conf > /dev/null
+# Append second setting
+echo "net.ipv4.ip_forward = 1" | sudo tee -a /etc/sysctl.d/k8s.conf > /dev/null
+
+# Reload sysctl settings
+echo "Reloading sysctl settings..."
+sudo sysctl --system
+
+# Install dependencies
+export DEBIAN_FRONTEND=noninteractive
+apt-get update
+apt-get install -y apt-transport-https ca-certificates curl gpg awscli jq
+
+# Install Kubernetes (using specific version passed from Terraform)
+K8S_KEYRING_DIR="/etc/apt/keyrings"
+K8S_KEYRING_FILE="$${K8S_KEYRING_DIR}/kubernetes-apt-keyring.gpg"
+K8S_REPO_FILE="/etc/apt/sources.list.d/kubernetes.list"
+
+mkdir -p "$${K8S_KEYRING_DIR}"
+curl -fsSL "https://pkgs.k8s.io/core:/stable:/v$${K8S_VERSION_MM}/deb/Release.key" | gpg --dearmor -o "$${K8S_KEYRING_FILE}" || { echo "Failed to download k8s gpg key"; exit 1; }
+echo "deb [signed-by=$${K8S_KEYRING_FILE}] https://pkgs.k8s.io/core:/stable:/v$${K8S_VERSION_MM}/deb/ /" > "$${K8S_REPO_FILE}" || { echo "Failed to write k8s repo file"; exit 1; }
+
+apt-get update
+# Determine package versions if needed, or install latest within the repo's major.minor
+apt-get install -y kubelet kubeadm kubectl
+apt-mark hold kubelet kubeadm kubectl
+
+# Install and configure containerd
+CONTAINERD_KEYRING_DIR="/usr/share/keyrings"
+CONTAINERD_KEYRING_FILE="$${CONTAINERD_KEYRING_DIR}/docker-archive-keyring.gpg"
+CONTAINERD_REPO_FILE="/etc/apt/sources.list.d/docker.list"
+
+curl -fsSL https://download.docker.com/linux/ubuntu/gpg | gpg --dearmor -o "$${CONTAINERD_KEYRING_FILE}" || { echo "Failed to download docker/containerd gpg key"; exit 1; }
+echo "deb [arch=$(dpkg --print-architecture) signed-by=$${CONTAINERD_KEYRING_FILE}] https://download.docker.com/linux/ubuntu $(lsb_release -cs) stable" > "$${CONTAINERD_REPO_FILE}" || { echo "Failed to write containerd repo file"; exit 1; }
+
+apt-get update
+apt-get install -y containerd.io
+
+
+echo "Configuring containerd for Kubernetes..."
+
+# Ensure the config directory exists
+sudo mkdir -p /etc/containerd
+
+# Generate default config and save it
+echo "Generating default containerd config -> /etc/containerd/config.toml"
+sudo bash -c 'containerd config default > /etc/containerd/config.toml'
+
+# --- FIXES START HERE ---
+# 1. Comment out the 'disabled_plugins = ["cri"]' line using sed
+echo "Ensuring CRI plugin is NOT disabled in containerd config..."
+# This sed command finds the exact line and puts a '#' at the beginning
+sudo sed -i 's/^disabled_plugins = \["cri"\]/#disabled_plugins = ["cri"]/' /etc/containerd/config.toml
+
+# 2. Modify the config to enable SystemdCgroup (keep this from before)
+echo "Enabling SystemdCgroup in containerd config..."
+sudo sed -i 's/SystemdCgroup = false/SystemdCgroup = true/' /etc/containerd/config.toml
+# --- FIXES END HERE ---
+
+# Restart containerd to apply changes
+echo "Restarting containerd service..."
+sudo systemctl restart containerd
+
+# Ensure containerd service is enabled on boot
+echo "Enabling containerd service..."
+sudo systemctl enable containerd
+
+# Optional: Brief wait/check for socket
+echo "Waiting briefly for containerd socket..."
+sleep 5
+if [ ! -S /var/run/containerd/containerd.sock ]; then
+  echo "WARNING: containerd socket not found after restart!"
+fi
+
+echo "Containerd configured and restarted."
+# --- End containerd configuration section ---
+echo "Worker node base setup completed successfully!"
+echo "Node should be ready for 'kubeadm join'."
+echo "-----------------------------------------------------"
+
+
+# Install NVIDIA Drivers
+sudo apt-get update
+sudo apt-get install -y nvidia-driver-535
+
+# Install NVIDIA Container Toolkit
+curl -fsSL https://nvidia.github.io/nvidia-container-runtime/gpgkey | sudo apt-key add -
+distribution=$(. /etc/os-release;echo $ID$VERSION_ID)
+curl -fsSL https://nvidia.github.io/nvidia-container-runtime/$distribution/nvidia-container-runtime.list | sudo tee /etc/apt/sources.list.d/nvidia-container-runtime.list
+sudo apt-get update
+sudo apt-get install -y nvidia-container-runtime
+
+# Configure containerd to use NVIDIA runtime
+sudo sed -i '/\[plugins."io.containerd.grpc.v1.cri".containerd.runtimes\]/a \
+        [plugins."io.containerd.grpc.v1.cri".containerd.runtimes.nvidia] \
+          runtime_type = "io.containerd.runc.v2" \
+          privileged_without_host_devices = false \
+          [plugins."io.containerd.grpc.v1.cri".containerd.runtimes.nvidia.options] \
+            BinaryName = "/usr/bin/nvidia-container-runtime"' /etc/containerd/config.toml
+
+# Restart containerd
+sudo systemctl restart containerd
+
+echo "User data script finished successfully."
+
+# Create a signal file to indicate completion
+sudo mkdir -p /var/lib/cloud/instance/
+sudo touch /var/lib/cloud/instance/user-data-finished # Create the signal file
+
+EOF
+

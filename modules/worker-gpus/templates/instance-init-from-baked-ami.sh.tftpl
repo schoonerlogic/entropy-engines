@@ -1,0 +1,299 @@
+#!/bin/bash
+set -euo pipefail # Strict mode
+
+# This script is downloaded and run by a loader script (e.g., seed-cpu-node-init.sh)
+# It configures an instance launched from a pre-baked AMI.
+
+# --- Script Arguments (Passed by the loader script from Terraform templatefile) ---
+# These should match the arguments your seed-cpu-node-init.sh passes.
+TARGET_USER="${1:-graphscope}" # Default to graphscope if not provided, but should be provided
+K8S_VERSION_MM_ARG="${2:-}"   # Baked-in K8s version, mostly informational now
+SSM_JOIN_COMMAND_PATH="${3}"
+CLUSTER_DNS_IP_ARG="${4:-}"   # Optional, as in your original script
+
+# --- Logging Setup ---
+LOG_FILE="/var/log/instance-init-from-baked-ami.log"
+touch "${LOG_FILE}" || { echo "CRITICAL: Cannot touch log file ${LOG_FILE}" >&2; exit 1; }
+chmod 644 "${LOG_FILE}"
+exec > >(tee -a "${LOG_FILE}") 2>&1 # Redirect stdout and stderr
+
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[0;33m'
+NC='\033[0m' # No Color
+
+log() { echo -e "${GREEN}[INFO]${NC} $(date '+%Y-%m-%d %H:%M:%S') - $1"; }
+warn() { echo -e "${YELLOW}[WARNING]${NC} $(date '+%Y-%m-%d %H:%M:%S') - $1"; }
+error() { echo -e "${RED}[ERROR]${NC} $(date '+%Y-%m-%d %H:%M:%S') - $1"; exit 1; }
+
+log "Instance Init Script (from Baked AMI) Started."
+log "Arguments: TARGET_USER='${TARGET_USER}', K8S_VERSION_MM_ARG='${K8S_VERSION_MM_ARG}', SSM_JOIN_COMMAND_PATH='${SSM_JOIN_COMMAND_PATH}', CLUSTER_DNS_IP_ARG='${CLUSTER_DNS_IP_ARG}'"
+
+# --- Essential Prerequisite Checks (AMI should have these) ---
+if ! command -v aws &> /dev/null; then
+    error "AWS CLI not found. This should have been baked into the AMI."
+fi
+if ! command -v jq &> /dev/null; then
+    error "jq not found. This should have been baked into the AMI."
+fi
+if ! command -v mkfs.xfs &> /dev/null; then
+    error "xfsprogs (mkfs.xfs) not found. This should have been baked into the AMI."
+fi
+
+# --- Configuration Variables (Path Definitions - MUST match AMI baking script) ---
+NVME_MOUNT_POINT="/mnt/nvme_storage"
+
+# K8s core directories on NVMe (targets for symlinks baked into AMI)
+NVME_CONTAINERD_DIR="${NVME_MOUNT_POINT}/lib/containerd"
+NVME_KUBELET_DIR="${NVME_MOUNT_POINT}/lib/kubelet"
+NVME_K8S_POD_LOGS_DIR="${NVME_MOUNT_POINT}/log/pods"
+
+# For TARGET_USER (e.g., graphscope)
+SHARED_MODELS_BASE_ON_NVME="${NVME_MOUNT_POINT}/shared_data/${TARGET_USER}"
+HUGGINGFACE_HOME_ON_NVME="${SHARED_MODELS_BASE_ON_NVME}/huggingface"
+DATASETS_PATH_ON_NVME="${SHARED_MODELS_BASE_ON_NVME}/datasets"
+LLM_MODELS_PATH_ON_NVME="${SHARED_MODELS_BASE_ON_NVME}/llm_models"
+LOCAL_PATH_PROVISIONER_DIR_ON_NVME="${NVME_MOUNT_POINT}/local-path-provisioner"
+USER_DOCKER_DATA_ROOT_ON_NVME="${NVME_MOUNT_POINT}/user_docker_data/${TARGET_USER}"
+
+# --- 1. Detect, Format, and Mount Ephemeral NVMe Instance Store ---
+log "Starting NVMe instance store setup..."
+ROOT_PARTITION=$(findmnt -n -o SOURCE /) || error "Cannot find root partition."
+log "Root partition detected: ${ROOT_PARTITION}"
+ROOT_DISK_NAME=$(lsblk -no pkname "${ROOT_PARTITION}")
+ROOT_DISK_PATH_PREFIX="/dev/"
+ROOT_DISK=""
+
+if [ -n "${ROOT_DISK_NAME}" ]; then
+    if [[ ! "${ROOT_DISK_NAME}" == /* ]]; then
+        ROOT_DISK="${ROOT_DISK_PATH_PREFIX}${ROOT_DISK_NAME}"
+    else
+        ROOT_DISK="${ROOT_DISK_NAME}"
+    fi
+elif [[ "${ROOT_PARTITION}" == /* ]]; then # Fallback if pkname not found
+    ROOT_DISK="${ROOT_PARTITION}"
+else
+    error "Could not determine root disk from root partition ${ROOT_PARTITION}."
+fi
+log "Root disk identified as: ${ROOT_DISK}"
+
+TARGET_NVME_DEVICE=""
+MIN_SIZE_BYTES=90000000000 # Approx 90GB, ensure this identifies your instance store
+
+log "Searching for a suitable non-root NVMe disk larger than ~${MIN_SIZE_BYTES} bytes."
+mapfile -t CANDIDATE_LINES < <(lsblk -dpbno NAME,TYPE,SIZE,MOUNTPOINT -e 7 | awk -v root_disk="${ROOT_DISK}" -v min_size="${MIN_SIZE_BYTES}" '$1 ~ /^\/dev\/nvme/ && $2 == "disk" && $1 != root_disk && $3 > min_size {print $1 ":" $4}') # Combine device and mountpoint
+
+for candidate_line in "${CANDIDATE_LINES[@]}"; do
+    DEV="${candidate_line%%:*}" # Everything before the first :
+    MOUNTPOINT_LSBLK="${candidate_line#*:}" # Everything after the first :
+    if [ "${DEV}" == "${MOUNTPOINT_LSBLK}" ]; then MOUNTPOINT_LSBLK=""; fi # Handle case where no mountpoint makes them same
+
+    log "Checking candidate device: ${DEV}, Current Mountpoint: '${MOUNTPOINT_LSBLK}'"
+    # Instance store should ideally be unmounted or on a generic temp OS mount
+    if [ -z "${MOUNTPOINT_LSBLK}" ] || [ "${MOUNTPOINT_LSBLK}" == "/mnt" ] || [[ "${MOUNTPOINT_LSBLK}" == /media/ephemeral* ]]; then
+        log "Found suitable ephemeral NVMe device: ${DEV}"
+        TARGET_NVME_DEVICE="${DEV}"
+        if [ -n "${MOUNTPOINT_LSBLK}" ] && [ "${MOUNTPOINT_LSBLK}" != "/" ]; then # Don't unmount root!
+            log "Unmounting ${DEV} from temporary mount ${MOUNTPOINT_LSBLK}..."
+            umount "${DEV}" || warn "Could not unmount ${DEV} from ${MOUNTPOINT_LSBLK}. This might be okay if it wasn't truly mounted or is already unmounted."
+        fi
+        break
+    else
+        log "Device ${DEV} has an existing mountpoint '${MOUNTPOINT_LSBLK}' not matching criteria. Skipping."
+    fi
+done
+
+if [ -z "${TARGET_NVME_DEVICE}" ]; then
+    lsblk -fp # Log full output for debugging if NVMe not found
+    # For K8s worker nodes, NVMe for /var/lib/kubelet etc. is often critical.
+    error "CRITICAL: No suitable NVMe instance store device found. This node cannot function correctly."
+fi
+NVME_DEVICE="${TARGET_NVME_DEVICE}"
+log "Target NVMe device for setup: ${NVME_DEVICE}"
+
+log "Formatting ${NVME_DEVICE} with xfs (instance store is ephemeral)..."
+mkfs.xfs -f "${NVME_DEVICE}" || error "Failed to format ${NVME_DEVICE} with xfs."
+
+mkdir -p "${NVME_MOUNT_POINT}" || error "Failed to create mount point ${NVME_MOUNT_POINT}"
+log "Mounting ${NVME_DEVICE} to ${NVME_MOUNT_POINT}..."
+mount -t xfs -o discard "${NVME_DEVICE}" "${NVME_MOUNT_POINT}" || error "Failed to mount ${NVME_DEVICE} to ${NVME_MOUNT_POINT}."
+
+log "NVMe storage at ${NVME_MOUNT_POINT} is now formatted and mounted."
+df -hT "${NVME_MOUNT_POINT}"
+
+# --- 2. Create Directory Structures on Mounted NVMe ---
+# The symlinks for K8s components (containerd, kubelet, pod logs) and potentially Docker
+# should already exist in the AMI, pointing to these locations under /mnt/nvme_storage.
+# This script ensures these target directories exist on the freshly formatted NVMe.
+log "Creating K8s, Docker, and user data directories on ${NVME_MOUNT_POINT}..."
+mkdir -p \
+    "${NVME_CONTAINERD_DIR}" \
+    "${NVME_KUBELET_DIR}" \
+    "${NVME_K8S_POD_LOGS_DIR}" \
+    "${HUGGINGFACE_HOME_ON_NVME}" \
+    "${DATASETS_PATH_ON_NVME}" \
+    "${LLM_MODELS_PATH_ON_NVME}" \
+    "${LOCAL_PATH_PROVISIONER_DIR_ON_NVME}" \
+    "${USER_DOCKER_DATA_ROOT_ON_NVME}" || error "Failed to create one or more base directories on NVMe."
+
+# Set permissions (mostly from your AMI baking script)
+log "Setting permissions and ownership for directories on NVMe..."
+# K8s directories are typically root-owned
+chown -R root:root "${NVME_CONTAINERD_DIR}" "${NVME_KUBELET_DIR}" "${NVME_K8S_POD_LOGS_DIR}"
+chmod -R 700 "${NVME_CONTAINERD_DIR}"
+chmod -R 700 "${NVME_KUBELET_DIR}"
+# /var/log/pods (target for symlink) needs to be writable by kubelet/containerd for logs
+# Kubelet typically manages permissions inside /var/lib/kubelet and /var/log/pods
+# For /var/log/pods, 755 or 775 might be needed if other processes need to read.
+# Let's assume kubelet will handle its specific log dir permissions correctly once it starts.
+# For safety, ensure the top-level NVMe log dir is accessible enough.
+chmod -R 755 "${NVME_K8S_POD_LOGS_DIR}"
+
+chmod 1777 "${LOCAL_PATH_PROVISIONER_DIR_ON_NVME}"
+log "Set permissions for ${LOCAL_PATH_PROVISIONER_DIR_ON_NVME}."
+
+if id "${TARGET_USER}" &>/dev/null; then
+    mkdir -p "$(dirname "${SHARED_MODELS_BASE_ON_NVME}")" # Ensure parent like /mnt/nvme_storage/shared_data exists
+    # Own the parent 'shared_data' directory first if it's meant for the user group
+    # chown "${TARGET_USER}:${TARGET_USER}" "$(dirname "${SHARED_MODELS_BASE_ON_NVME}")"
+    chown -R "${TARGET_USER}:${TARGET_USER}" "${SHARED_MODELS_BASE_ON_NVME}"
+    chmod -R u=rwX,g=rX,o= "${SHARED_MODELS_BASE_ON_NVME}"
+
+    # Check if Docker was configured in AMI to use this path
+    # The AMI script creates /etc/docker/daemon.json if INSTALL_USER_DOCKER_CE="true"
+    if [ -f "/etc/docker/daemon.json" ] && grep -q "\"data-root\": \"${USER_DOCKER_DATA_ROOT_ON_NVME}\"" /etc/docker/daemon.json 2>/dev/null ; then
+        log "Setting ownership for user Docker data directory: ${USER_DOCKER_DATA_ROOT_ON_NVME}"
+        chown -R "${TARGET_USER}:${TARGET_USER}" "${USER_DOCKER_DATA_ROOT_ON_NVME}"
+        chmod -R u=rwx,g=rX,o=rX "${USER_DOCKER_DATA_ROOT_ON_NVME}" # Docker needs to traverse and manage this
+    fi
+    log "Set ownership and permissions for ${TARGET_USER}'s directories."
+else
+    warn "User ${TARGET_USER} not found! Skipping chown for user-specific directories."
+fi
+
+# --- 3. Restart Services Whose Data Dirs are on NVMe ---
+# Symlinks for these services were created in the AMI.
+# Restart them to ensure they use the newly mounted and prepared NVMe directories.
+log "Restarting containerd..."
+if systemctl is-active --quiet containerd; then
+    systemctl restart containerd || warn "Failed to restart containerd. Check 'journalctl -u containerd'."
+else
+    systemctl start containerd || warn "Failed to start containerd. Check 'journalctl -u containerd'."
+fi
+
+# Restart Docker if it was configured to use NVMe in the AMI
+if [ -f "/etc/docker/daemon.json" ] && grep -q "\"data-root\": \"${USER_DOCKER_DATA_ROOT_ON_NVME}\"" /etc/docker/daemon.json 2>/dev/null ; then
+    log "Restarting Docker service..."
+    if systemctl is-active --quiet docker; then
+        systemctl restart docker || warn "Failed to restart Docker. Check 'journalctl -u docker'."
+    else
+        systemctl start docker || warn "Failed to start Docker. Check 'journalctl -u docker'."
+    fi
+fi
+# Kubelet is NOT restarted here; it will be configured and started by 'kubeadm join'.
+
+# --- 4. Fetch and Execute kubeadm join ---
+# This logic is largely from your cpu-node-init.sh
+log "Fetching kubeadm join command from SSM: ${SSM_JOIN_COMMAND_PATH}"
+
+IMDSV2_TOKEN=""
+# Use a timeout for the token fetch in case metadata service is slow/unresponsive
+if curl --connect-timeout 5 -s -X PUT "http://169.254.169.254/latest/api/token" -H "X-aws-ec2-metadata-token-ttl-seconds: 300" > /dev/null 2>&1; then
+    IMDSV2_TOKEN=$(curl --connect-timeout 5 -s -X PUT "http://169.254.169.254/latest/api/token" -H "X-aws-ec2-metadata-token-ttl-seconds: 300")
+else
+    warn "Failed to get IMDSv2 token (curl command failed or timed out). AWS CLI might rely on IMDSv1 or instance profile."
+fi
+
+METADATA_HEADER_ARGS=""
+if [ -n "$IMDSV2_TOKEN" ]; then
+    METADATA_HEADER_ARGS="-H \"X-aws-ec2-metadata-token: $IMDSV2_TOKEN\""
+fi
+
+# Use eval carefully with METADATA_HEADER_ARGS if it contains complex characters; direct substitution is safer if possible.
+# However, for simple header it's usually fine.
+EC2_REGION=$(curl --connect-timeout 5 -s ${METADATA_HEADER_ARGS} http://169.254.169.254/latest/dynamic/instance-identity/document | jq -r .region)
+
+if [ -z "${EC2_REGION}" ] || [ "${EC2_REGION}" == "null" ]; then
+    warn "Failed to get EC2 region from metadata, attempting to use AWS_REGION env var or defaulting to us-east-1."
+    EC2_REGION="${AWS_REGION:-us-east-1}" # Use AWS_REGION if set, else fallback
+fi
+log "Using EC2 Region for SSM: ${EC2_REGION}"
+
+MAX_SSM_RETRIES=5
+RETRY_SSM_DELAY=15
+RETRY_SSM_COUNT=0
+JOIN_COMMAND=""
+
+log "Attempting to fetch join command from SSM Path: ${SSM_JOIN_COMMAND_PATH}"
+while [ ${RETRY_SSM_COUNT} -lt ${MAX_SSM_RETRIES} ]; do
+    JOIN_COMMAND=$(aws ssm get-parameter --name "${SSM_JOIN_COMMAND_PATH}" --with-decryption --query Parameter.Value --output text --region "${EC2_REGION}" 2>/dev/null)
+    if [ -n "$JOIN_COMMAND" ]; then
+        log "Successfully retrieved join command from SSM."
+        break
+    else
+        RETRY_SSM_COUNT=$((RETRY_SSM_COUNT + 1))
+        if [ ${RETRY_SSM_COUNT} -lt ${MAX_SSM_RETRIES} ]; then
+            warn "Failed to retrieve join command (attempt ${RETRY_SSM_COUNT}/${MAX_SSM_RETRIES}). Retrying in ${RETRY_SSM_DELAY}s..."
+            sleep ${RETRY_SSM_DELAY}
+        else
+            error "Failed to retrieve join command from SSM: ${SSM_JOIN_COMMAND_PATH} after ${MAX_SSM_RETRIES} attempts."
+        fi
+    fi
+done
+
+log "Executing kubeadm join command..."
+KUBEADM_JOIN_LOG="/var/log/kubeadm-join-output.log" # Log specific to kubeadm join
+echo "--- Kubeadm Join Attempt $(date) ---" > "${KUBEADM_JOIN_LOG}"
+
+MAX_JOIN_RETRIES=3
+RETRY_JOIN_DELAY=60
+RETRY_JOIN_COUNT=0
+JOIN_SUCCESSFUL=false
+
+while [ ${RETRY_JOIN_COUNT} -lt ${MAX_JOIN_RETRIES} ]; do
+    # Ensure kubelet is not running with some stale config before join
+    # systemctl stop kubelet || warn "Kubelet was not running before join attempt."
+
+    # The join command might contain --cri-socket which needs to be correct for containerd
+    # Ensure the command does not include elements that were part of AMI baking only
+    log "Kubeadm join attempt $((RETRY_JOIN_COUNT + 1))..."
+    # Add --v=5 to JOIN_COMMAND for verbose kubeadm output if needed for debugging
+    # Example: eval "${JOIN_COMMAND} --v=5" >> "${KUBEADM_JOIN_LOG}" 2>&1
+    eval "${JOIN_COMMAND}" >> "${KUBEADM_JOIN_LOG}" 2>&1
+    JOIN_EXIT_CODE=$?
+
+    if [ ${JOIN_EXIT_CODE} -eq 0 ]; then
+        log "kubeadm join command completed successfully."
+        JOIN_SUCCESSFUL=true
+        break
+    else
+        RETRY_JOIN_COUNT=$((RETRY_JOIN_COUNT + 1))
+        cat "${KUBEADM_JOIN_LOG}" # Print current attempt's log to main log for easier debugging
+        if [ ${RETRY_JOIN_COUNT} -lt ${MAX_JOIN_RETRIES} ]; then
+            warn "kubeadm join attempt ${RETRY_JOIN_COUNT}/${MAX_JOIN_RETRIES} failed with exit code ${JOIN_EXIT_CODE}. Retrying in ${RETRY_JOIN_DELAY}s..."
+            # Optional: kubeadm reset before retrying a join?
+            # kubeadm reset -f >> "${KUBEADM_JOIN_LOG}" 2>&1 || warn "kubeadm reset failed before retry."
+            sleep ${RETRY_JOIN_DELAY}
+        else
+            error "kubeadm join command failed with exit code $JOIN_EXIT_CODE after ${MAX_JOIN_RETRIES} attempts. Check ${KUBEADM_JOIN_LOG}."
+        fi
+    fi
+done
+
+# Kubeadm join should enable and start kubelet. Let's verify.
+sleep 10 # Give kubelet a moment to settle
+log "Checking Kubelet status post-join..."
+if systemctl is-active --quiet kubelet; then
+    log "Kubelet service is active."
+    if ! systemctl is-enabled --quiet kubelet; then
+        log "Enabling kubelet service to start on boot."
+        systemctl enable kubelet || warn "Failed to enable kubelet service."
+    fi
+else
+    warn "Kubelet service is NOT active after join. Check 'journalctl -u kubelet' and '${KUBEADM_JOIN_LOG}' for errors."
+    # Attempt a start if not active, as sometimes join might not leave it perfectly running
+    systemctl start kubelet || warn "Attempt to start kubelet failed."
+fi
+
+log "Instance User Data Bootstrap Script finished successfully."
+exit 0

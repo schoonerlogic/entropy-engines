@@ -1,0 +1,72 @@
+#!/usr/bin/env bash
+bash set -e -o pipefail
+
+LOG_DIR="/var/log/terraform-provisioning"
+LOG_FILE="$LOG_DIR/cluster_addons.log"
+
+# Create a log directory and make it owned by the SSH user
+sudo mkdir -p "$LOG_DIR"
+sudo chown $(whoami):$(whoami) "$LOG_DIR"
+touch "$LOG_FILE"
+
+# Redirect all stdout/stderr into the log (and the console)
+exec &> >(tee -a "$LOG_FILE")
+
+echo "=== Terraform Remote-Exec Bootstrap ==="
+echo "Run started at: $(date)"
+
+
+echo "--- Running Apply Cluster Addons Script ---"
+# Define wait parameters
+WAIT_TIMEOUT=300 # 5 minutes timeout
+WAIT_INTERVAL=10 # Check every 10 seconds
+
+# Wait for API server again just to be sure before applying
+echo "Verifying API server readiness..."
+ELAPSED=0
+
+until sudo kubectl --kubeconfig=/etc/kubernetes/admin.conf get nodes > /dev/null 2>&1; do
+  if [ "$ELAPSED" -ge "$WAIT_TIMEOUT" ]; then echo "FATAL: Timeout waiting for API server before applying addons."; exit 1; fi
+  sleep "$WAIT_INTERVAL"
+  ELAPSED=$((ELAPSED + WAIT_INTERVAL))
+  echo "Waiting for API server ($ELAPSEDs / $WAIT_TIMEOUTs)..."
+done
+echo "API server ready. Applying addons..."
+
+# Install metrics server
+echo "Installing metrics server..."
+METRICS_URL="https://github.com/kubernetes-sigs/metrics-server/releases/latest/download/components.yaml"
+curl -fsSL -o /tmp/metrics-components.yaml "$METRICS_URL" || { echo "FATAL: Failed to download metrics-server manifests"; exit 1; }
+# Optional patch if needed: sudo sed -i '/args:/a \        - --kubelet-insecure-tls' /tmp/metrics-components.yaml
+sudo kubectl --kubeconfig=/etc/kubernetes/admin.conf apply -f /tmp/metrics-components.yaml || { echo "FATAL: Failed to apply metrics-server manifests"; exit 1; }
+echo "Applied metrics-server manifests."
+
+# Install AWS EBS CSI driver
+# echo "Installing AWS EBS CSI driver..."
+# # Ensure kustomize is installed via user_data
+# EBS_CSI_URL="https://github.com/kubernetes-sigs/aws-ebs-csi-driver/deploy/kubernetes/overlays/stable/?ref=master"
+# sudo kubectl --kubeconfig=/etc/kubernetes/admin.conf apply -k "$EBS_CSI_URL" || { echo "FATAL: Failed to apply AWS EBS CSI driver using kustomize"; exit 1; }
+# echo "Applied AWS EBS CSI driver manifests."
+#
+
+echo "Installing AWS EBS CSI driver..."
+EBS_CSI_TAG="v1.29.0" # <-- Use specific stable tag
+EBS_CSI_REPO="https://github.com/kubernetes-sigs/aws-ebs-csi-driver.git"
+TMP_DIR="/tmp/aws-ebs-csi-driver"
+
+# Clone the specific tag
+rm -rf "$TMP_DIR" # Clean up previous attempt if any
+git clone --depth 1 --branch "$EBS_CSI_TAG" "$EBS_CSI_REPO" "$TMP_DIR" || { echo "FATAL: Failed to clone AWS EBS CSI driver repo"; exit 1; }
+
+# Apply using the local Kustomize overlay path
+KUSTOMIZE_PATH="$TMP_DIR/deploy/kubernetes/overlays/stable"
+sudo kubectl --kubeconfig=/etc/kubernetes/admin.conf apply -k "$KUSTOMIZE_PATH" || { echo "FATAL: Failed to apply AWS EBS CSI driver using kustomize from local clone"; exit 1; }
+
+# Clean up
+rm -rf "$TMP_DIR"
+
+echo "Applied AWS EBS CSI driver manifests."
+
+
+echo "--- Apply Cluster Addons Script Finished ---"
+

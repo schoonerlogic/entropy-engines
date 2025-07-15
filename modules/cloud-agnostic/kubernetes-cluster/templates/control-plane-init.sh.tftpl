@@ -1,0 +1,85 @@
+#!/bin/bash
+set -euxo pipefail
+
+# Update system
+apt-get update
+apt-get upgrade -y
+
+# Install dependencies
+apt-get install -y \
+    apt-transport-https \
+    ca-certificates \
+    curl \
+    gnupg \
+    lsb-release \
+    software-properties-common
+
+# Install containerd
+curl -fsSL https://download.docker.com/linux/ubuntu/gpg | gpg --dearmor -o /usr/share/keyrings/docker-archive-keyring.gpg
+echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/docker-archive-keyring.gpg] https://download.docker.com/linux/ubuntu $(lsb_release -cs) stable" | tee /etc/apt/sources.list.d/docker.list > /dev/null
+apt-get update
+apt-get install -y containerd.io
+
+# Configure containerd
+mkdir -p /etc/containerd
+containerd config default | tee /etc/containerd/config.toml
+sed -i 's/SystemdCgroup = false/SystemdCgroup = true/' /etc/containerd/config.toml
+systemctl restart containerd
+systemctl enable containerd
+
+# Install kubeadm, kubelet, kubectl
+curl -fsSL https://packages.cloud.google.com/apt/doc/apt-key.gpg | apt-key add -
+echo "deb https://apt.kubernetes.io/ kubernetes-xenial main" | tee -a /etc/apt/sources.list.d/kubernetes.list
+apt-get update
+apt-get install -y kubelet=${kubernetes_version}-00 kubeadm=${kubernetes_version}-00 kubectl=${kubernetes_version}-00
+apt-mark hold kubelet kubeadm kubectl
+
+# Configure kubelet
+mkdir -p /var/lib/kubelet
+cat > /var/lib/kubelet/config.yaml <<EOF
+apiVersion: kubelet.config.k8s.io/v1beta1
+kind: KubeletConfiguration
+failSwapOn: false
+containerRuntimeEndpoint: unix:///run/containerd/containerd.sock
+EOF
+
+# Initialize Kubernetes cluster
+kubeadm init \
+  --pod-network-cidr=${pod_cidr} \
+  --service-cidr=${service_cidr} \
+  --token=${kubeadm_token} \
+  --certificate-key=${certificate_key} \
+  --upload-certs \
+  --control-plane-endpoint=$(hostname -I | awk '{print $1}')
+
+# Configure kubectl for root
+mkdir -p $HOME/.kube
+cp -i /etc/kubernetes/admin.conf $HOME/.kube/config
+chown $(id -u):$(id -g) $HOME/.kube/config
+
+# Install Calico CNI
+kubectl create -f https://raw.githubusercontent.com/projectcalico/calico/v3.26.0/manifests/tigera-operator.yaml
+kubectl create -f https://raw.githubusercontent.com/projectcalico/calico/v3.26.0/manifests/custom-resources.yaml
+
+# Install cloud controller manager if needed
+%{ if cloud_provider != "" ~}
+cat > ${cloud_config_path} <<EOF
+[Global]
+%{ if cloud_provider == "aws" ~}
+KubernetesClusterTag=${cluster_name}
+KubernetesClusterID=${cluster_name}
+%{ endif ~}
+%{ if cloud_provider == "gce" ~}
+project-id=${cluster_name}
+%{ endif ~}
+%{ if cloud_provider == "azure" ~}
+cloud=AZUREPUBLICCLOUD
+%{ endif ~}
+EOF
+%{ endif ~}
+
+# Enable kubectl completion
+echo 'source <(kubectl completion bash)' >> ~/.bashrc
+
+# Log completion
+echo "$(date -Iseconds) Control plane initialization completed" >> /var/log/k8s-init.log

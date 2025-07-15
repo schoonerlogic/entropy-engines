@@ -1,0 +1,61 @@
+#!/bin/bash
+set -euxo pipefail
+
+# Update system
+apt-get update
+apt-get upgrade -y
+
+# Install dependencies
+apt-get install -y \
+    apt-transport-https \
+    ca-certificates \
+    curl \
+    gnupg \
+    lsb-release \
+    software-properties-common
+
+# Install containerd
+curl -fsSL https://download.docker.com/linux/ubuntu/gpg | gpg --dearmor -o /usr/share/keyrings/docker-archive-keyring.gpg
+echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/docker-archive-keyring.gpg] https://download.docker.com/linux/ubuntu $(lsb_release -cs) stable" | tee /etc/apt/sources.list.d/docker.list > /dev/null
+apt-get update
+apt-get install -y containerd.io
+
+# Configure containerd
+mkdir -p /etc/containerd
+containerd config default | tee /etc/containerd/config.toml
+sed -i 's/SystemdCgroup = false/SystemdCgroup = true/' /etc/containerd/config.toml
+systemctl restart containerd
+systemctl enable containerd
+
+# Install kubeadm, kubelet, kubectl
+curl -fsSL https://packages.cloud.google.com/apt/doc/apt-key.gpg | apt-key add -
+echo "deb https://apt.kubernetes.io/ kubernetes-xenial main" | tee -a /etc/apt/sources.list.d/kubernetes.list
+apt-get update
+apt-get install -y kubelet=${kubernetes_version}-00 kubeadm=${kubernetes_version}-00
+apt-mark hold kubelet kubeadm
+
+# Configure kubelet
+mkdir -p /var/lib/kubelet
+cat > /var/lib/kubelet/config.yaml <<EOF
+apiVersion: kubelet.config.k8s.io/v1beta1
+kind: KubeletConfiguration
+failSwapOn: false
+containerRuntimeEndpoint: unix:///run/containerd/containerd.sock
+EOF
+
+# Wait for control plane to be ready
+until nc -z ${control_plane_endpoint} 6443; do
+  echo "Waiting for control plane..."
+  sleep 10
+done
+
+# Join the cluster
+kubeadm join ${control_plane_endpoint}:6443 \
+  --token=${kubeadm_token} \
+  --discovery-token-unsafe-skip-ca-verification
+
+# Enable kubectl completion for root
+echo 'source <(kubectl completion bash)' >> ~/.bashrc
+
+# Log completion
+echo "$(date -Iseconds) Worker node joined cluster" >> /var/log/k8s-join.log

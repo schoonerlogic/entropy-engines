@@ -1,0 +1,75 @@
+#!/bin/bash
+set -e -o pipefail
+
+echo "DEBUG: The SSM join command path passed to this script is: '${ssm_join_command_path}'"
+
+# --- Setup Logging ---
+LOG_DIR=/var/log/terraform-provisioning
+LOG_FILE=$LOG_DIR/upload-join-info.log # Renamed for clarity
+sudo mkdir -p "$LOG_DIR"
+sudo chown "$(whoami):$(whoami)" "$LOG_DIR"
+touch "$LOG_FILE"
+# Redirect ALL output to console & log
+exec &> >(tee -a "$LOG_FILE")
+
+
+echo "=== Starting SSM Upload Script at $(date) ==="
+
+# --- Wait for the main bootstrap to complete ---
+# This logic is moved from the old remote-exec block
+BOOTSTRAP_COMPLETE_FILE='/tmp/terraform_bootstrap_complete'
+echo "Waiting for bootstrap to complete (checking for $BOOTSTRAP_COMPLETE_FILE)..."
+TIMEOUT=600
+ELAPSED=0
+INTERVAL=10
+while [ ! -f "$BOOTSTRAP_COMPLETE_FILE" ]; do
+  if [ $ELAPSED -ge $TIMEOUT ]; then
+    echo "ERROR: Timeout waiting for bootstrap completion after $${TIMEOUT}s"
+    exit 1
+  fi
+  echo "Bootstrap still running, waiting $${INTERVAL}s... ($${ELAPSED}s/$${TIMEOUT}s)"
+  sleep $INTERVAL
+  ELAPSED=$((ELAPSED + INTERVAL))
+done
+echo "Bootstrap completed! Proceeding with SSM upload..."
+
+
+# --- Verify and Read Join Files ---
+WORKER_JOIN_FILE='/tmp/kubeadm_join_worker.sh'
+CERT_KEY_FILE='/tmp/kube_cert_key_only.txt'
+
+echo "Verifying join files exist..."
+test -f "$WORKER_JOIN_FILE" || { echo "ERROR: Join worker file $WORKER_JOIN_FILE not found!"; exit 1; }
+test -f "$CERT_KEY_FILE" || { echo "ERROR: Certificate key file $CERT_KEY_FILE not found!"; exit 1; }
+echo "Join files verified."
+
+WORKER_JOIN_CMD=$(cat "$WORKER_JOIN_FILE")
+CERTIFICATE_KEY=$(cat "$CERT_KEY_FILE")
+
+
+# --- Get Instance Region ---
+# Use IMDSv2 with a token for better security
+TOKEN=$(curl -X PUT "http://169.254.169.254/latest/api/token" -H "X-aws-ec2-metadata-token-ttl-seconds: 60" -s)
+INSTANCE_REGION=$(curl -H "X-aws-ec2-metadata-token: $TOKEN" -s http://169.254.169.254/latest/dynamic/instance-identity/document | jq -r .region)
+if [ -z "$INSTANCE_REGION" ]; then echo 'FATAL: Could not determine instance region'; exit 1; fi
+
+
+# --- Upload to SSM ---
+echo "Uploading worker join command to SSM parameter: ${ssm_join_command_path}"
+aws ssm put-parameter \
+  --name "${ssm_join_command_path}" \
+  --type "SecureString" \
+  --value "$WORKER_JOIN_CMD" \
+  --overwrite \
+  --region "$INSTANCE_REGION"
+
+echo "Uploading certificate key to SSM parameter: ${ssm_certificate_key_path}"
+aws ssm put-parameter \
+  --name "${ssm_certificate_key_path}" \
+  --type "SecureString" \
+  --value "$CERTIFICATE_KEY" \
+  --overwrite \
+  --region "$INSTANCE_REGION"
+
+echo "SSM Upload Complete."
+

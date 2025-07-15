@@ -1,0 +1,56 @@
+# NATS Server Configuration
+# Cluster configuration for ${cluster_name}
+
+# Client port
+port: 4222
+
+# HTTP monitoring port
+http_port: 8222
+
+# Cluster configuration
+cluster {
+  port: 6222
+  
+  # Routes for clustering
+  routes = [
+    %{ for i in range(cluster_size) ~}
+    %{ if i > 0 ~}
+    nats://nats-${i + 1}.${cluster_name}.local:6222
+    %{ endif ~}
+    %{ endfor ~}
+  ]
+}
+
+# JetStream configuration
+jetstream {
+  store_dir: "/var/lib/nats/jetstream"
+  max_mem_store: 1GB
+  max_file_store: 10GB
+}
+
+# Logging
+log_file: "/var/log/nats/nats-server.log"
+log_level: info
+
+# Limits
+max_connections: 65536
+max_subscriptions: 0  # Unlimited
+max_payload: 8MB
+max_pending: 64MB
+
+# TLS (uncomment and configure for production)
+# tls {
+#   cert_file: "/etc/nats/certs/server.pem"
+#   key_file: "/etc/nats/certs/server-key.pem"
+#   ca_file: "/etc/nats/certs/ca.pem"
+#   verify: true
+#   verify_and_map: true
+# }
+
+# Authorization (uncomment and configure for production)
+# authorization {
+#   users = [
+#     { user: "agent", password: "agent-pass" }
+#     { user: "admin", password: "admin-pass" }
+#   ]
+# }

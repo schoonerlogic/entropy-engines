@@ -1,0 +1,56 @@
+### `helm-deployment.yaml` - GraphScope Helm Configuration
+
+coordinator:
+  replicaCount: 1
+  resources:
+    limits:
+      cpu: 4
+      memory: 8Gi
+    requests:
+      cpu: 2
+      memory: 4Gi
+
+engines:
+  analytical:
+    enabled: true
+    resources:
+      limits:
+        cpu: 8
+        memory: 32Gi
+      requests:
+        cpu: 4
+        memory: 16Gi
+    nodeSelector:
+      Role: cpu-worker
+  
+  interactive:
+    enabled: true
+    resources:
+      limits:
+        cpu: 8
+        memory: 32Gi
+      requests:
+        cpu: 4
+        memory: 16Gi
+    nodeSelector:
+      Role: cpu-worker
+  
+  learning:
+    enabled: true
+    resources:
+      limits:
+        nvidia.com/gpu: 1
+        cpu: 8
+        memory: 32Gi
+      requests:
+        nvidia.com/gpu: 1
+        cpu: 4
+        memory: 16Gi
+    nodeSelector:
+      Role: gpu-worker
+
+persistence:
+  enabled: true
+  accessMode: ReadWriteOnce
+  size: 100Gi
+  storageClass: "ebs-sc"
