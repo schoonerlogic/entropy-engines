@@ -1,38 +1,60 @@
-# SSH Config for Entropy Engines Demo Cluster
+# SSH Config for entropy-engines Cluster
 # Generated automatically by Terraform
 
-Host entropy-bastion
-    HostName 44.223.23.42
-    User ubuntu
-    IdentityFile ~/.ssh/lw.pem
-    ForwardAgent yes
+Host entropy-engines-bastion
+  HostName 98.81.176.203
+  User ubuntu
+  IdentityFile ~/.ssh/lw.pem
+  ForwardAgent yes
+  IdentitiesOnly yes
+  StrictHostKeyChecking no
+  UserKnownHostsFile /dev/null
 
-Host entropy-controller-0
-    HostName 10.0.1.232
-    User ubuntu
-    IdentityFile ~/.ssh/lw.pem
-    ProxyJump entropy-bastion
 
-Host entropy-cpu-worker-0
-    HostName 10.0.1.155
-    User ubuntu
-    IdentityFile ~/.ssh/lw.pem
-    ProxyJump entropy-bastion
+Host entropy-engines-controller-0
+  HostName 10.0.1.37
+  User ubuntu
+  IdentityFile ~/.ssh/lw.pem
+  ProxyJump entropy-engines-bastion
+  StrictHostKeyChecking no
+  UserKnownHostsFile /dev/null
 
-Host entropy-nats-0
-    HostName 10.0.1.202
-    User ubuntu
-    IdentityFile ~/.ssh/lw.pem
-    ProxyJump entropy-bastion
 
-Host entropy-nats-1
-    HostName 10.0.2.190
-    User ubuntu
-    IdentityFile ~/.ssh/lw.pem
-    ProxyJump entropy-bastion
 
-Host entropy-nats-2
-    HostName 10.0.3.175
-    User ubuntu
-    IdentityFile ~/.ssh/lw.pem
-    ProxyJump entropy-bastion
+Host entropy-engines-cpu-worker-0
+  HostName 10.0.1.224
+  User ubuntu
+  IdentityFile ~/.ssh/lw.pem
+  ProxyJump entropy-engines-bastion
+  StrictHostKeyChecking no
+  UserKnownHostsFile /dev/null
+
+
+
+
+Host entropy-engines-nats-0
+  HostName 10.0.1.91
+  User ubuntu
+  IdentityFile ~/.ssh/lw.pem
+  ProxyJump entropy-engines-bastion
+  StrictHostKeyChecking no
+  UserKnownHostsFile /dev/null
+
+
+Host entropy-engines-nats-1
+  HostName 10.0.2.107
+  User ubuntu
+  IdentityFile ~/.ssh/lw.pem
+  ProxyJump entropy-engines-bastion
+  StrictHostKeyChecking no
+  UserKnownHostsFile /dev/null
+
+
+Host entropy-engines-nats-2
+  HostName 10.0.3.5
+  User ubuntu
+  IdentityFile ~/.ssh/lw.pem
+  ProxyJump entropy-engines-bastion
+  StrictHostKeyChecking no
+  UserKnownHostsFile /dev/null
+

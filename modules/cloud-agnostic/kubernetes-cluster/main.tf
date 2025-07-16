@@ -1,80 +1,6 @@
 # Cloud-Agnostic Kubernetes Cluster Module
 # This module creates a self-managed Kubernetes cluster using kubeadm
 
-variable "cluster_name" {
-  description = "Name of the Kubernetes cluster"
-  type        = string
-}
-
-# Worker node user data template is now in locals block above
-
-variable "control_plane_count" {
-  description = "Number of control plane nodes"
-  type        = number
-  default     = 3
-}
-
-variable "control_plane_instance_type" {
-  description = "Instance type for control plane nodes"
-  type        = string
-  default     = "t3.medium"
-}
-
-variable "pod_cidr" {
-  description = "CIDR range for pods"
-  type        = string
-  default     = "10.244.0.0/16"
-}
-
-variable "service_cidr" {
-  description = "CIDR range for services"
-  type        = string
-  default     = "10.96.0.0/12"
-}
-
-variable "ssh_key_name" {
-  description = "Name of the SSH key pair"
-  type        = string
-}
-
-variable "subnet_ids" {
-  description = "List of subnet IDs for the cluster"
-  type        = list(string)
-}
-
-variable "security_group_ids" {
-  description = "List of security group IDs"
-  type        = list(string)
-}
-
-variable "iam_instance_profile" {
-  description = "IAM instance profile name"
-  type        = string
-}
-
-variable "cloud_provider" {
-  description = "Cloud provider (aws, gcp, azure)"
-  type        = string
-}
-
-variable "cloud_config" {
-  description = "Cloud-specific configuration"
-  type = object({
-    region             = string
-    availability_zones = list(string)
-    instance_profile   = string
-    security_group_ids = list(string)
-    subnet_ids         = list(string)
-    vpc_id             = string
-  })
-}
-
-variable "kubernetes_version" {
-  description = "Kubernetes version"
-  type        = string
-  default     = "1.29.0"
-}
-
 # Generate a random token for kubeadm
 resource "random_string" "kubeadm_token" {
   length  = 6
@@ -82,16 +8,24 @@ resource "random_string" "kubeadm_token" {
   upper   = false
 }
 
-# Generate a random certificate key
-resource "random_string" "certificate_key" {
-  length  = 64
+resource "random_string" "kubeadm_token_id" {
+  length  = 16
   special = false
   upper   = false
 }
 
+# Generate a random certificate key (32 bytes hex encoded)
+resource "random_string" "certificate_key" {
+  length  = 64
+  special = false
+  upper   = false
+  lower   = true
+  number  = true
+}
+
 # Template for control plane initialization
 locals {
-  kubeadm_token   = random_string.kubeadm_token.result
+  kubeadm_token   = "${random_string.kubeadm_token.result}.${random_string.kubeadm_token_id.result}"
   certificate_key = random_string.certificate_key.result
 
   # Cloud-specific configurations
@@ -111,11 +45,8 @@ locals {
   }
 
   cloud_config = local.cloud_configs[var.cloud_provider]
-}
 
-# Control plane user data template
-locals {
-  control_plane_endpoint = "placeholder" # This needs to be calculated
+  control_plane_endpoint = var.control_plane_private_ip
 
   control_plane_user_data = base64encode(templatefile("${path.module}/templates/control-plane-init.sh.tftpl", {
     cluster_name       = var.cluster_name
@@ -123,56 +54,19 @@ locals {
     pod_cidr           = var.pod_cidr
     service_cidr       = var.service_cidr
     kubeadm_token      = local.kubeadm_token
-    certificate_key    = local.certificate_key
+    certificate_key    = "" # Let kubeadm generate it
     cloud_provider     = "aws"
     cloud_config_path  = "/etc/kubernetes/aws.conf"
   }))
 
   worker_user_data = base64encode(templatefile("${path.module}/templates/worker-join.sh.tftpl", {
-    cluster_name           = var.cluster_name
-    kubernetes_version     = var.kubernetes_version
-    kubeadm_token          = local.kubeadm_token
-    certificate_key        = local.certificate_key
-    cloud_provider         = "aws"
-    cloud_config_path      = "/etc/kubernetes/aws.conf"
-    control_plane_endpoint = "placeholder"
+    cluster_name                 = var.cluster_name
+    kubernetes_version           = var.kubernetes_version
+    kubeadm_token                = local.kubeadm_token
+    certificate_key              = local.certificate_key
+    cloud_provider               = "aws"
+    cloud_config_path            = "/etc/kubernetes/aws.conf"
+    control_plane_endpoint       = var.control_plane_private_ip
+    discovery_token_ca_cert_hash = var.discovery_token_ca_cert_hash
   }))
-}
-
-# Outputs for other modules
-output "kubeadm_token" {
-  description = "Kubeadm token for joining nodes"
-  value       = local.kubeadm_token
-  sensitive   = true
-}
-
-output "certificate_key" {
-  description = "Certificate key for joining control plane nodes"
-  value       = local.certificate_key
-  sensitive   = true
-}
-
-output "control_plane_user_data" {
-  description = "User data for control plane initialization"
-  value       = local.control_plane_user_data
-}
-
-output "worker_user_data" {
-  description = "User data for worker node joining"
-  value       = local.worker_user_data
-}
-
-output "kubernetes_version" {
-  description = "Kubernetes version"
-  value       = var.kubernetes_version
-}
-
-output "pod_cidr" {
-  description = "Pod CIDR range"
-  value       = var.pod_cidr
-}
-
-output "service_cidr" {
-  description = "Service CIDR range"
-  value       = var.service_cidr
 }

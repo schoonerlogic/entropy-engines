@@ -1,175 +1,6 @@
 # Cloud-Agnostic Infrastructure Configuration
 # This file orchestrates the deployment of self-managed Kubernetes across clouds
 
-terraform {
-  required_providers {
-    aws = {
-      source  = "hashicorp/aws"
-      version = "~> 5.0"
-    }
-    random = {
-      source  = "hashicorp/random"
-      version = "~> 3.5"
-    }
-  }
-}
-
-# Variables
-
-
-variable "cluster_name" {
-  description = "Name of the Kubernetes cluster"
-  type        = string
-  default     = "agentic-platform"
-}
-
-variable "environment" {
-  description = "Environment name"
-  type        = string
-  default     = "dev"
-}
-
-variable "tags" {
-  description = "Additional tags to apply to all AWS resources"
-  type        = map(string)
-  default     = {}
-}
-
-variable "single_nat_gateway" {
-  description = "Use single NAT gateway for cost optimization"
-  type        = bool
-  default     = true
-}
-
-variable "nats_version" {
-  description = "NATS server version"
-  type        = string
-}
-
-variable "nats_instance_type" {
-  description = "Instance type for NATS servers"
-  type        = string
-  default     = "t4g.small"
-}
-
-
-
-variable "enable_vpc_endpoints" {
-  description = "Enable VPC endpoints for cost optimization"
-  type        = bool
-  default     = true
-}
-
-variable "enable_volume_encryption" {
-  description = "Enable EBS volume encryption"
-  type        = bool
-  default     = true
-}
-
-variable "ssh_allowed_cidrs" {
-  description = "CIDR blocks allowed for SSH access"
-  type        = list(string)
-  default     = ["0.0.0.0/0"]
-}
-
-variable "bastion_allowed_cidrs" {
-  description = "CIDR blocks allowed for bastion access"
-  type        = list(string)
-  default     = ["0.0.0.0/0"]
-}
-
-variable "kubernetes_version" {
-  description = "Kubernetes version"
-  type        = string
-  default     = "1.29.0"
-}
-
-variable "aws_region" {
-  description = "AWS region"
-  type        = string
-  default     = "us-east-1"
-}
-
-variable "availability_zones" {
-  description = "List of availability zones"
-  type        = list(string)
-  default     = ["us-east-1a", "us-east-1b", "us-east-1c"]
-}
-
-variable "ssh_key_name" {
-  description = "SSH key pair name"
-  type        = string
-}
-
-variable "enable_bastion_host" {
-  description = "Enable creation of bastion host"
-  type        = bool
-  default     = false
-}
-
-# Control plane configuration
-variable "control_plane_count" {
-  description = "Number of control plane nodes"
-  type        = number
-  default     = 3
-}
-
-variable "control_plane_instance_type" {
-  description = "Instance type for control plane"
-  type        = string
-  default     = "t3.medium"
-}
-
-# CPU worker configuration
-variable "cpu_worker_count" {
-  description = "Number of CPU worker nodes"
-  type        = number
-  default     = 2
-}
-
-variable "cpu_worker_instance_type" {
-  description = "Instance type for CPU workers"
-  type        = string
-  default     = "m7g.large"
-}
-
-# GPU worker configuration
-variable "gpu_worker_count" {
-  description = "Number of GPU worker nodes"
-  type        = number
-  default     = 1
-}
-
-variable "gpu_worker_instance_type" {
-  description = "Instance type for GPU workers"
-  type        = string
-  default     = "g5g.xlarge"
-}
-
-# Networking configuration
-variable "vpc_cidr" {
-  description = "VPC CIDR block"
-  type        = string
-  default     = "10.0.0.0/16"
-}
-
-variable "pod_cidr" {
-  description = "Pod CIDR range"
-  type        = string
-  default     = "10.244.0.0/16"
-}
-
-variable "service_cidr" {
-  description = "Service CIDR range"
-  type        = string
-  default     = "10.96.0.0/12"
-}
-
-# Configure AWS provider
-provider "aws" {
-  region = var.aws_region
-}
-
 # Local values for AWS-specific configuration
 locals {
   cloud_config = {
@@ -183,6 +14,11 @@ locals {
     subnet_ids = module.aws_infrastructure.private_subnet_ids
     vpc_id     = module.aws_infrastructure.vpc_id
   }
+}
+
+# Configure AWS provider
+provider "aws" {
+  region = var.aws_region
 }
 
 # AWS Infrastructure (cloud-specific)
@@ -200,22 +36,8 @@ module "aws_infrastructure" {
   ssh_key_name          = var.ssh_key_name
   tags                  = var.tags
 }
-# Kubernetes cluster configuration (cloud-agnostic)
-module "kubernetes_cluster" {
-  source = "./modules/cloud-agnostic/kubernetes-cluster"
 
-  cluster_name         = var.cluster_name
-  pod_cidr             = var.pod_cidr
-  service_cidr         = var.service_cidr
-  ssh_key_name         = var.ssh_key_name
-  subnet_ids           = module.aws_infrastructure.private_subnet_ids
-  security_group_ids   = [module.aws_infrastructure.control_plane_security_group_id, module.aws_infrastructure.worker_nodes_security_group_id]
-  iam_instance_profile = module.aws_infrastructure.iam_instance_profile_name
-  cloud_provider       = "aws"
-  cloud_config         = local.cloud_config
-}
-
-# Agent nodes (CPU and GPU)
+# Agent nodes (CPU and GPU) - Create instances first
 module "agent_nodes" {
   source = "./modules/cloud-agnostic/agent-nodes"
 
@@ -243,6 +65,24 @@ module "agent_nodes" {
   certificate_key    = module.kubernetes_cluster.certificate_key
 }
 
+# Kubernetes cluster configuration (cloud-agnostic)
+module "kubernetes_cluster" {
+  source = "./modules/cloud-agnostic/kubernetes-cluster"
+
+  cluster_name                 = var.cluster_name
+  pod_cidr                     = var.pod_cidr
+  service_cidr                 = var.service_cidr
+  ssh_key_name                 = var.ssh_key_name
+  subnet_ids                   = module.aws_infrastructure.private_subnet_ids
+  security_group_ids           = [module.aws_infrastructure.control_plane_security_group_id, module.aws_infrastructure.worker_nodes_security_group_id]
+  iam_instance_profile         = module.aws_infrastructure.iam_instance_profile_name
+  cloud_provider               = "aws"
+  cloud_config                 = local.cloud_config
+  kubernetes_version           = var.kubernetes_version
+  control_plane_private_ip     = cidrhost(module.aws_infrastructure.private_subnet_cidrs[0], 37)
+  discovery_token_ca_cert_hash = "sha256:399a2eb369c7bd7b1f84a77d68e005a933eb4ee7e05db12f23fc69535d598e66"
+}
+
 # NATS messaging infrastructure
 module "nats_messaging" {
   source = "./modules/cloud-agnostic/nats-messaging"
@@ -251,36 +91,55 @@ module "nats_messaging" {
   cloud_provider     = "aws"
   cloud_config       = local.cloud_config
   nats_instance_type = var.nats_instance_type
+  nats_version       = var.nats_version
 }
 
-# Outputs
-output "cluster_endpoint" {
-  description = "Kubernetes cluster endpoint"
-  value       = module.aws_infrastructure.vpc_id
-}
+# SSH configuration
+resource "local_file" "ssh_config" {
+  filename = "${path.root}/ssh_config"
+  content = templatefile("${path.module}/modules/ssh-config/templates/ssh_config.tpl", {
+    cluster_name         = var.cluster_name
+    bastion_host         = module.aws_infrastructure.bastion_public_ip
+    bastion_user         = "ubuntu"
+    k8s_user             = "ubuntu"
+    ssh_private_key_path = "~/.ssh/${var.ssh_key_name}.pem"
+    ssh_key_name         = "~/.ssh/${var.ssh_key_name}.pem"
 
-output "control_plane_ips" {
-  description = "Private IP addresses of control plane nodes"
-  value       = module.agent_nodes.control_plane_private_ips
-}
+    controller_private_ips = module.agent_nodes.control_plane_private_ips
+    worker_gpu_private_ips = module.agent_nodes.gpu_worker_private_ips
+    worker_cpu_private_ips = module.agent_nodes.cpu_worker_private_ips
+    nats_private_ips       = module.nats_messaging.nats_private_ips
 
-output "cpu_worker_ips" {
-  description = "Private IP addresses of CPU worker nodes"
-  value       = module.agent_nodes.cpu_worker_private_ips
-}
+    controllers = length(module.agent_nodes.control_plane_private_ips) > 0 ? [
+      for i, ip in module.agent_nodes.control_plane_private_ips : {
+        index      = i,
+        private_ip = ip
+      }
+    ] : [],
+    has_controllers = length(module.agent_nodes.control_plane_private_ips) > 0,
 
-output "gpu_worker_ips" {
-  description = "Private IP addresses of GPU worker nodes"
-  value       = module.agent_nodes.gpu_worker_private_ips
-}
+    worker_gpus = length(module.agent_nodes.gpu_worker_private_ips) > 0 ? [
+      for i, ip in module.agent_nodes.gpu_worker_private_ips : {
+        index      = i,
+        private_ip = ip
+      }
+    ] : [],
+    has_worker_gpus = length(module.agent_nodes.gpu_worker_private_ips) > 0,
 
-output "nats_endpoint" {
-  description = "NATS messaging endpoint"
-  value       = module.nats_messaging.nats_endpoint
-}
+    worker_cpus = length(module.agent_nodes.cpu_worker_private_ips) > 0 ? [
+      for i, ip in module.agent_nodes.cpu_worker_private_ips : {
+        index      = i,
+        private_ip = ip
+      }
+    ] : [],
+    has_worker_cpus = length(module.agent_nodes.cpu_worker_private_ips) > 0,
 
-output "kubeconfig_command" {
-  description = "Command to get kubeconfig from control plane"
-  value       = "kubectl config use-context ${var.cluster_name}"
+    nats_servers = length(module.nats_messaging.nats_private_ips) > 0 ? [
+      for i, ip in module.nats_messaging.nats_private_ips : {
+        index      = i,
+        private_ip = ip
+      }
+    ] : [],
+    has_nats_servers = length(module.nats_messaging.nats_private_ips) > 0,
+  })
 }
-

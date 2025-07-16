@@ -1,9 +1,9 @@
 # modules/ssh-config/main.tf
 resource "local_file" "ssh_config" {
-  filename = "${path.module}/../../ssh_config"
+  filename = "${path.root}/ssh_config"
   content = templatefile("${path.module}/templates/ssh_config.tpl", {
     cluster_name         = var.cluster_name,
-    bastion_host         = var.bastion_host
+    bastion_host         = var.bastion_host,
     bastion_user         = var.bastion_user,
     k8s_user             = var.k8s_user,
     ssh_private_key_path = var.ssh_private_key_path,
@@ -12,7 +12,7 @@ resource "local_file" "ssh_config" {
     controller_private_ips = var.controller_private_ips,
     worker_gpu_private_ips = var.worker_gpu_private_ips,
     worker_cpu_private_ips = var.worker_cpu_private_ips,
-    # tooling_node_private_ips = var.tooling_node_private_ips,
+    nats_private_ips       = var.nats_private_ips,
 
     controllers = length(var.controller_private_ips) > 0 ? [
       for i, ip in var.controller_private_ips : {
@@ -38,22 +38,14 @@ resource "local_file" "ssh_config" {
     ] : [],
     has_worker_cpus = length(var.worker_cpu_private_ips) > 0,
 
-    #   tooling_nodes = length(var.tooling_node_private_ips) > 0 ? [
-    #     for i, ip in var.tooling_node_private_ips : {
-    #       index      = i,
-    #       private_ip = ip
-    #     }
-    #   ] : [],
-    #   has_tooling_nodes = length(var.tooling_node_private_ips) > 0,
+    nats_servers = length(var.nats_private_ips) > 0 ? [
+      for i, ip in var.nats_private_ips : {
+        index      = i,
+        private_ip = ip
+      }
+    ] : [],
+    has_nats_servers = length(var.nats_private_ips) > 0,
   })
-
-  # The file should be regenerated every time any of these input values change
-  depends_on = [
-    var.controller_private_ips,
-    var.worker_gpu_private_ips,
-    var.worker_cpu_private_ips,
-    # var.tooling_node_private_ips,
-  ]
 }
 
 output "ssh_instructions" {

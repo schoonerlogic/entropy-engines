@@ -1,46 +1,6 @@
 # Cloud-Agnostic NATS Messaging Module
 # This module sets up NATS messaging infrastructure for inter-agent communication
 
-variable "cluster_name" {
-  description = "Name of the Kubernetes cluster"
-  type        = string
-}
-
-variable "cloud_provider" {
-  description = "Cloud provider (aws, gcp, azure)"
-  type        = string
-}
-
-variable "cloud_config" {
-  description = "Cloud-specific configuration"
-  type = object({
-    region             = string
-    availability_zones = list(string)
-    instance_profile   = string
-    security_group_ids = list(string)
-    subnet_ids         = list(string)
-    vpc_id             = string
-  })
-}
-
-variable "nats_cluster_size" {
-  description = "Number of NATS server instances"
-  type        = number
-  default     = 3
-}
-
-variable "nats_instance_type" {
-  description = "Instance type for NATS servers"
-  type        = string
-  default     = "t3.small"
-}
-
-variable "nats_version" {
-  description = "NATS server version"
-  type        = string
-  default     = "2.10.0"
-}
-
 # Local values
 locals {
   common_tags = {
@@ -49,10 +9,7 @@ locals {
     ManagedBy   = "terraform"
     Service     = "nats"
   }
-}
 
-# NATS configuration template
-locals {
   nats_config = templatefile("${path.module}/templates/nats-server.conf.tftpl", {
     cluster_name = var.cluster_name
     cluster_size = var.nats_cluster_size
@@ -165,25 +122,3 @@ resource "aws_security_group" "nats" {
     Name = "${var.cluster_name}-nats"
   })
 }
-
-# Outputs
-output "nats_private_ips" {
-  description = "Private IP addresses of NATS servers"
-  value       = var.cloud_provider == "aws" ? aws_instance.nats[*].private_ip : []
-}
-
-output "nats_public_ips" {
-  description = "Public IP addresses of NATS servers"
-  value       = var.cloud_provider == "aws" ? aws_instance.nats[*].public_ip : []
-}
-
-output "nats_endpoint" {
-  description = "NATS cluster endpoint"
-  value       = var.cloud_provider == "aws" ? join(",", aws_instance.nats[*].private_ip) : ""
-}
-
-output "nats_client_url" {
-  description = "NATS client connection URL"
-  value       = var.cloud_provider == "aws" ? "nats://${join(",", aws_instance.nats[*].private_ip)}:4222" : ""
-}
-

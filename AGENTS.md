@@ -23,6 +23,33 @@
 - Use `locals` for complex expressions  
 - Inline comments for non-obvious logic
 
+## Terraform File Structure Best Practices
+Following HashiCorp's standard module structure:
+
+### File Organization
+```
+module/
+├── main.tf          # Main resource configurations
+├── variables.tf     # Input variable declarations  
+├── outputs.tf       # Output value definitions
+├── versions.tf      # Provider and Terraform version requirements
+├── terraform.tfvars # Variable values (not committed)
+└── README.md        # Module documentation
+```
+
+### File Purpose
+- **main.tf**: Primary resource definitions and core logic
+- **variables.tf**: All input variable declarations with descriptions, types, and defaults
+- **outputs.tf**: All output definitions with descriptions
+- **versions.tf**: Provider requirements and Terraform version constraints
+- **terraform.tfvars**: Actual variable values (use .example for templates)
+
+### Naming Conventions
+- Use descriptive names for all resources
+- Prefix variables with module context when needed
+- Group related variables together with comments
+- Include validation blocks for critical variables
+
 ---
 
 ## Error Handling

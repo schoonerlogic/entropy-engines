@@ -1,98 +1,6 @@
 # AWS Cloud-Specific Infrastructure Module
 # This module creates AWS-specific resources for the self-managed Kubernetes cluster
 
-terraform {
-  required_providers {
-    aws = {
-      source  = "hashicorp/aws"
-      version = "~> 5.0"
-    }
-  }
-}
-
-# Data sources for AWS
-variable "aws_region" {
-  description = "AWS region for resources"
-  type        = string
-  default     = "us-east-1"
-}
-
-variable "cluster_name" {
-  description = "Name of the Kubernetes cluster"
-  type        = string
-}
-
-variable "environment" {
-  description = "Environment name (dev/staging/prod)"
-  type        = string
-  default     = "dev"
-}
-
-variable "vpc_cidr" {
-  description = "CIDR block for VPC"
-  type        = string
-  default     = "10.0.0.0/16"
-}
-
-variable "availability_zones" {
-  description = "List of availability zones"
-  type        = list(string)
-  default     = ["us-east-1a", "us-east-1b", "us-east-1c"]
-}
-
-variable "enable_nat_gateway" {
-  description = "Enable NAT gateway for private subnets"
-  type        = bool
-  default     = true
-}
-
-variable "single_nat_gateway" {
-  description = "Use single NAT gateway for cost optimization"
-  type        = bool
-  default     = true
-}
-
-variable "enable_vpc_endpoints" {
-  description = "Enable VPC endpoints for cost optimization"
-  type        = bool
-  default     = true
-}
-
-variable "ssh_allowed_cidrs" {
-  description = "CIDR blocks allowed for SSH access"
-  type        = list(string)
-  default     = ["0.0.0.0/0"]
-}
-
-variable "bastion_allowed_cidrs" {
-  description = "CIDR blocks allowed for bastion access"
-  type        = list(string)
-  default     = ["0.0.0.0/0"]
-}
-
-variable "enable_bastion_host" {
-  description = "Enable creation of bastion host"
-  type        = bool
-  default     = false
-}
-
-variable "bastion_instance_type" {
-  description = "Instance type for bastion host"
-  type        = string
-  default     = "t3.micro"
-}
-
-variable "ssh_key_name" {
-  description = "SSH key pair name for bastion access"
-  type        = string
-}
-
-variable "tags" {
-  description = "Additional tags to apply to all resources"
-  type        = map(string)
-  default     = {}
-}
-
 # Common tags for all AWS resources
 locals {
   common_tags = merge(
@@ -155,6 +63,14 @@ resource "aws_security_group" "control_plane" {
     to_port     = 22
     protocol    = "tcp"
     cidr_blocks = var.ssh_allowed_cidrs
+  }
+
+  # Kubernetes API Server
+  ingress {
+    from_port   = 6443
+    to_port     = 6443
+    protocol    = "tcp"
+    cidr_blocks = [var.vpc_cidr]
   }
 
   # etcd
@@ -401,60 +317,4 @@ resource "aws_instance" "bastion" {
     Name = "${var.cluster_name}-bastion"
     Role = "bastion"
   })
-}
-
-# Outputs
-output "vpc_id" {
-  description = "ID of the VPC"
-  value       = module.vpc.vpc_id
-}
-
-output "private_subnet_ids" {
-  description = "List of private subnet IDs"
-  value       = module.vpc.private_subnets
-}
-
-output "public_subnet_ids" {
-  description = "List of public subnet IDs"
-  value       = module.vpc.public_subnets
-}
-
-output "vpc_cidr_block" {
-  description = "CIDR block of the VPC"
-  value       = module.vpc.vpc_cidr_block
-}
-
-output "control_plane_security_group_id" {
-  description = "Security group ID for control plane"
-  value       = aws_security_group.control_plane.id
-}
-
-output "worker_nodes_security_group_id" {
-  description = "Security group ID for worker nodes"
-  value       = aws_security_group.worker_nodes.id
-}
-
-output "bastion_security_group_id" {
-  description = "Security group ID for bastion host"
-  value       = aws_security_group.bastion.id
-}
-
-output "bastion_public_ip" {
-  description = "Public IP address of bastion host"
-  value       = var.enable_bastion_host ? aws_instance.bastion[0].public_ip : null
-}
-
-output "bastion_instance_id" {
-  description = "Instance ID of bastion host"
-  value       = var.enable_bastion_host ? aws_instance.bastion[0].id : null
-}
-
-output "iam_instance_profile_name" {
-  description = "Name of the IAM instance profile"
-  value       = aws_iam_instance_profile.k8s_instance_profile.name
-}
-
-output "availability_zones" {
-  description = "List of availability zones"
-  value       = var.availability_zones
 }
