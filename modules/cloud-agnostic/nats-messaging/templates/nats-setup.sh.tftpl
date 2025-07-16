@@ -32,10 +32,10 @@ else
 fi
 
 wget -O /tmp/nats-server.tar.gz \
-    "https://github.com/nats-io/nats-server/releases/download/v${NATS_VERSION}/nats-server-v${NATS_VERSION}-linux-${ARCH}.tar.gz"
+    "https://github.com/nats-io/nats-server/releases/download/v${nats_version}/nats-server-v${nats_version}-linux-${ARCH}.tar.gz"
 
 tar -xzf /tmp/nats-server.tar.gz -C /tmp
-mv /tmp/nats-server-v${NATS_VERSION}-linux-${ARCH}/nats-server /usr/local/bin/
+mv /tmp/nats-server-v${nats_version}-linux-${ARCH}/nats-server /usr/local/bin/
 chmod +x /usr/local/bin/nats-server
 
 # Create NATS configuration

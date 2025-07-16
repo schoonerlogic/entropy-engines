@@ -16,7 +16,7 @@ variable "subnet_id" {
 
 variable "models" {
   description = "List of Hugging Face models to download"
-  type        = list(object({
+  type = list(object({
     model_id    = string
     destination = string
   }))
@@ -36,7 +36,7 @@ variable "iam_policy_arn" {
 variable "instance_type" {
   description = "Instance type for the model downloader"
   type        = string
-  default     = "c7g.large"  # ARM-based Graviton instance
+  default     = "c7g.large" # ARM-based Graviton instance
 }
 
 variable "tags" {

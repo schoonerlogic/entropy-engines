@@ -1,12 +1,11 @@
-# Entropy Engines - Cloud-Agnostic Configuration Example
-# Copy this file to terraform.tfvars and customize for your deployment
+# Entropy Engines - AWS Configuration Example
+# Copy this file to terraform.tfvars and customize for your AWS deployment
 
 # Core Configuration
-cloud_provider = "aws"
 cluster_name   = "agentic-platform"
 environment    = "dev"
 
-# AWS Configuration (when cloud_provider = "aws")
+# AWS Configuration
 aws_region          = "us-east-1"
 availability_zones   = ["us-east-1a", "us-east-1b", "us-east-1c"]
 
@@ -14,9 +13,9 @@ availability_zones   = ["us-east-1a", "us-east-1b", "us-east-1c"]
 ssh_key_name = "your-ssh-key-name"
 
 # Security Configuration (REQUIRED)
-# Replace with your actual CIDR blocks
-ssh_allowed_cidrs    = ["10.0.0.0/8", "192.168.1.0/24"]
-bastion_allowed_cidrs = ["203.0.113.0/24"]  # Your office/home IP
+# Replace with your actual CIDR blocks - use your current IP for SSH access
+ssh_allowed_cidrs    = ["0.0.0.0/0"]  # Restrict this to your IP ranges
+bastion_allowed_cidrs = ["0.0.0.0/0"]  # Your office/home IP - restrict this
 
 # Network Configuration
 vpc_cidr = "10.0.0.0/16"
@@ -45,7 +44,7 @@ kms_key_id              = null  # Use AWS managed key
 
 # Cost Optimization
 nat_type           = "gateway"
-single_nat_gateway = true
+single_nat_gateway = true  # Set to false for production HA
 
 # Feature Flags
 enable_nats_messaging = true
@@ -54,6 +53,13 @@ enable_vpc_endpoints  = true
 enable_bastion_host   = true
 
 # Instance Configuration
-instance_ami_architecture = "arm64"
+instance_ami_architecture = "arm64"  # Use "x86_64" for Intel/AMD
 ubuntu_version           = "22.04"
 bastion_instance_type    = "t3.micro"
+
+# AWS Tags (optional)
+tags = {
+  Project     = "entropy-engines"
+  Environment = "dev"
+  Owner       = "your-team"
+}

@@ -1,25 +1,26 @@
-# Entropy Engines - Cloud-Agnostic Agentic Platform
+# Entropy Engines - AWS Agentic Platform
 
-A **multi-agent, model-serving platform** built on **self-managed Kubernetes** with **cloud-agnostic infrastructure**, supporting both CPU and GPU workloads with low-latency inter-agent messaging.
+A **multi-agent, model-serving platform** built on **self-managed Kubernetes** with **AWS-native infrastructure**, supporting both CPU and GPU workloads with low-latency inter-agent messaging.
 
 ## 🚀 Quick Start
 
 ### Prerequisites
 - Terraform >= 1.0.0
-- AWS CLI configured (for AWS deployments)
-- SSH key pair in your target cloud
+- AWS CLI configured with appropriate permissions
+- SSH key pair in your AWS account
+- AWS account with sufficient quotas for EC2 instances
 
 ### Deploy in 3 Steps
 
 1. **Configure**
    ```bash
    cp terraform.tfvars.example terraform.tfvars
-   # Edit terraform.tfvars with your settings
+   # Edit terraform.tfvars with your AWS settings
    ```
 
 2. **Deploy**
    ```bash
-   ./deploy.sh aws apply
+   ./deploy.sh apply
    ```
 
 3. **Access**
@@ -31,31 +32,26 @@ A **multi-agent, model-serving platform** built on **self-managed Kubernetes** w
 
 ## 🏗️ Architecture
 
-### **Cloud-Agnostic Design**
-- **Self-managed Kubernetes** with kubeadm
-- **Modular infrastructure** supporting AWS, GCP, Azure
-- **GPU/CPU workload separation** with proper taints
+### **AWS-Native Design**
+- **Self-managed Kubernetes** with kubeadm on AWS
+- **AWS-native services** for networking, storage, and security
+- **GPU/CPU workload separation** with proper taints and instance types
 - **NATS messaging** for low-latency inter-agent communication
 
 ### **Core Components**
 ```
 entropy-engines/
 ├── modules/
-│   ├── cloud-agnostic/          # Cloud-agnostic modules
+│   ├── cloud-agnostic/          # Core Kubernetes modules
 │   │   ├── kubernetes-cluster/  # kubeadm-based K8s setup
 │   │   ├── agent-nodes/         # CPU/GPU worker nodes
 │   │   └── nats-messaging/      # NATS cluster setup
-│   ├── cloud-specific/          # Cloud-specific implementations
-│   │   ├── aws/                 # AWS-specific resources
-│   │   ├── gcp/                 # GCP-specific resources
-│   │   └── azure/               # Azure-specific resources
-│   └── shared/                  # Shared utilities
-│       ├── networking/          # Generic networking
-│       └── storage/             # Generic storage
+│   ├── cloud-specific/          # AWS-specific infrastructure
+│   │   └── aws/                 # AWS VPC, security, IAM
 ├── modules/shared-aws-vpc/      # Enhanced AWS VPC module
 ├── infrastructure.tf            # Main orchestration
-├── deploy.sh                    # Deployment script
-└── terraform.tfvars.example     # Configuration template
+├── deploy.sh                    # AWS deployment script
+└── terraform.tfvars.example     # AWS configuration template
 ```
 
 ## 🎯 Features
@@ -124,21 +120,19 @@ enable_vpc_endpoints = true
 
 ## 🚀 Deployment
 
-### **Supported Clouds**
-- **AWS** (fully supported)
-- **GCP** (planned)
-- **Azure** (planned)
+### **AWS Deployment**
+- **AWS** (fully supported with native services)
 
 ### **Deployment Commands**
 ```bash
 # Plan deployment
-./deploy.sh aws plan
+./deploy.sh plan
 
 # Apply deployment
-./deploy.sh aws apply
+./deploy.sh apply
 
 # Destroy infrastructure
-./deploy.sh aws destroy
+./deploy.sh destroy
 ```
 
 ### **Access Your Cluster**

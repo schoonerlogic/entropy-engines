@@ -54,7 +54,7 @@ module "vpc" {
   ssh_key_name = var.ssh_key_name
 
   # Security
-  ssh_allowed_cidrs    = var.ssh_allowed_cidrs
+  ssh_allowed_cidrs     = var.ssh_allowed_cidrs
   bastion_allowed_cidrs = var.ssh_allowed_cidrs
 
   # Basic features

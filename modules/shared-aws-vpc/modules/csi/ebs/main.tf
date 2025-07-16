@@ -38,13 +38,13 @@ resource "kubernetes_storage_class" "ebs_sc" {
     name = var.storage_class_name
   }
 
-  provisioner          = "ebs.csi.aws.com"
-  reclaim_policy       = "Delete"
-  volume_binding_mode  = "WaitForFirstConsumer"
+  provisioner            = "ebs.csi.aws.com"
+  reclaim_policy         = "Delete"
+  volume_binding_mode    = "WaitForFirstConsumer"
   allow_volume_expansion = true
 
   parameters = {
-    type = "gp3"
+    type   = "gp3"
     fsType = "ext4"
   }
 }

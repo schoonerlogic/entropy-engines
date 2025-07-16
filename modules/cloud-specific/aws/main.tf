@@ -52,19 +52,63 @@ variable "single_nat_gateway" {
   default     = true
 }
 
+variable "enable_vpc_endpoints" {
+  description = "Enable VPC endpoints for cost optimization"
+  type        = bool
+  default     = true
+}
+
+variable "ssh_allowed_cidrs" {
+  description = "CIDR blocks allowed for SSH access"
+  type        = list(string)
+  default     = ["0.0.0.0/0"]
+}
+
+variable "bastion_allowed_cidrs" {
+  description = "CIDR blocks allowed for bastion access"
+  type        = list(string)
+  default     = ["0.0.0.0/0"]
+}
+
+variable "enable_bastion_host" {
+  description = "Enable creation of bastion host"
+  type        = bool
+  default     = false
+}
+
+variable "bastion_instance_type" {
+  description = "Instance type for bastion host"
+  type        = string
+  default     = "t3.micro"
+}
+
+variable "ssh_key_name" {
+  description = "SSH key pair name for bastion access"
+  type        = string
+}
+
+variable "tags" {
+  description = "Additional tags to apply to all resources"
+  type        = map(string)
+  default     = {}
+}
+
 # Common tags for all AWS resources
 locals {
-  common_tags = {
-    Project     = "AgenticPlatform"
-    Environment = var.environment
-    Cluster     = var.cluster_name
-    ManagedBy   = "terraform"
-  }
+  common_tags = merge(
+    var.tags,
+    {
+      Project     = "AgenticPlatform"
+      Environment = var.environment
+      Cluster     = var.cluster_name
+      ManagedBy   = "terraform"
+    }
+  )
 }
 
 # VPC and networking
 module "vpc" {
-  source = "terraform-aws-modules/vpc/aws"
+  source  = "terraform-aws-modules/vpc/aws"
   version = "~> 5.0"
 
   name = "${var.cluster_name}-vpc"
@@ -80,17 +124,23 @@ module "vpc" {
   enable_dns_support   = true
 
   # Kubernetes specific tags
-  public_subnet_tags = {
+  public_subnet_tags = merge(local.common_tags, {
     "kubernetes.io/role/elb"                    = "1"
     "kubernetes.io/cluster/${var.cluster_name}" = "owned"
-  }
+  })
 
-  private_subnet_tags = {
+  private_subnet_tags = merge(local.common_tags, {
     "kubernetes.io/role/internal-elb"           = "1"
     "kubernetes.io/cluster/${var.cluster_name}" = "owned"
-  }
+  })
 
   tags = local.common_tags
+
+  # Enable VPC flow logs for security monitoring
+  enable_flow_log                      = true
+  create_flow_log_cloudwatch_iam_role  = true
+  create_flow_log_cloudwatch_log_group = true
+  flow_log_max_aggregation_interval    = 60
 }
 
 # Security groups
@@ -101,26 +151,26 @@ resource "aws_security_group" "control_plane" {
 
   # Kubernetes API
   ingress {
-    from_port   = 6443
-    to_port     = 6443
+    from_port   = 22
+    to_port     = 22
     protocol    = "tcp"
-    cidr_blocks = [var.vpc_cidr]
+    cidr_blocks = var.ssh_allowed_cidrs
   }
 
   # etcd
   ingress {
-    from_port   = 2379
-    to_port     = 2380
-    protocol    = "tcp"
-    self        = true
+    from_port = 2379
+    to_port   = 2380
+    protocol  = "tcp"
+    self      = true
   }
 
   # Kubelet API
   ingress {
-    from_port   = 10250
-    to_port     = 10250
-    protocol    = "tcp"
-    self        = true
+    from_port = 10250
+    to_port   = 10250
+    protocol  = "tcp"
+    self      = true
   }
 
   # NATS messaging
@@ -154,7 +204,8 @@ resource "aws_security_group" "control_plane" {
   }
 
   tags = merge(local.common_tags, {
-    Name = "${var.cluster_name}-control-plane"
+    Name                                        = "${var.cluster_name}-control-plane"
+    "kubernetes.io/cluster/${var.cluster_name}" = "owned"
   })
 }
 
@@ -202,7 +253,8 @@ resource "aws_security_group" "worker_nodes" {
   }
 
   tags = merge(local.common_tags, {
-    Name = "${var.cluster_name}-worker-nodes"
+    Name                                        = "${var.cluster_name}-worker-nodes"
+    "kubernetes.io/cluster/${var.cluster_name}" = "owned"
   })
 }
 
@@ -215,7 +267,7 @@ resource "aws_security_group" "bastion" {
     from_port   = 22
     to_port     = 22
     protocol    = "tcp"
-    cidr_blocks = ["0.0.0.0/0"]
+    cidr_blocks = var.bastion_allowed_cidrs
   }
 
   egress {
@@ -226,7 +278,8 @@ resource "aws_security_group" "bastion" {
   }
 
   tags = merge(local.common_tags, {
-    Name = "${var.cluster_name}-bastion"
+    Name                                        = "${var.cluster_name}-bastion"
+    "kubernetes.io/cluster/${var.cluster_name}" = "owned"
   })
 }
 
@@ -262,6 +315,17 @@ resource "aws_iam_role_policy" "k8s_instance_policy" {
         Action = [
           "ec2:DescribeInstances",
           "ec2:DescribeRegions",
+          "ec2:DescribeRouteTables",
+          "ec2:DescribeSecurityGroups",
+          "ec2:DescribeSubnets",
+          "ec2:DescribeVolumes",
+          "ec2:CreateTags",
+          "ec2:CreateVolume",
+          "ec2:DeleteVolume",
+          "ec2:AttachVolume",
+          "ec2:DetachVolume",
+          "ec2:ModifyVolume",
+          "ec2:DescribeVolumesModifications",
           "ecr:GetAuthorizationToken",
           "ecr:BatchCheckLayerAvailability",
           "ecr:GetDownloadUrlForLayer",
@@ -273,7 +337,18 @@ resource "aws_iam_role_policy" "k8s_instance_policy" {
           "s3:ListBucket",
           "ssm:GetParameter",
           "ssm:GetParameters",
-          "ssm:DescribeParameters"
+          "ssm:DescribeParameters",
+          "autoscaling:DescribeAutoScalingGroups",
+          "autoscaling:DescribeLaunchConfigurations",
+          "autoscaling:DescribeTags",
+          "elasticloadbalancing:DescribeLoadBalancers",
+          "elasticloadbalancing:DescribeLoadBalancerAttributes",
+          "elasticloadbalancing:DescribeListeners",
+          "elasticloadbalancing:DescribeListenerCertificates",
+          "elasticloadbalancing:DescribeRules",
+          "elasticloadbalancing:DescribeTargetGroups",
+          "elasticloadbalancing:DescribeTargetHealth",
+          "iam:CreateServiceLinkedRole"
         ]
         Resource = "*"
       }
@@ -286,6 +361,46 @@ resource "aws_iam_instance_profile" "k8s_instance_profile" {
   role = aws_iam_role.k8s_instance_role.name
 
   tags = local.common_tags
+}
+
+# Data source for Ubuntu AMI
+data "aws_ami" "ubuntu" {
+  most_recent = true
+  owners      = ["099720109477"] # Canonical
+
+  filter {
+    name   = "name"
+    values = ["ubuntu/images/hvm-ssd/ubuntu-jammy-22.04-amd64-server-*"]
+  }
+
+  filter {
+    name   = "virtualization-type"
+    values = ["hvm"]
+  }
+}
+
+# Bastion Host
+resource "aws_instance" "bastion" {
+  count = var.enable_bastion_host ? 1 : 0
+
+  ami                         = data.aws_ami.ubuntu.id
+  instance_type               = var.bastion_instance_type
+  subnet_id                   = module.vpc.public_subnets[0]
+  vpc_security_group_ids      = [aws_security_group.bastion.id]
+  associate_public_ip_address = true
+  key_name                    = var.ssh_key_name
+
+  root_block_device {
+    volume_type           = "gp3"
+    volume_size           = 20
+    encrypted             = true
+    delete_on_termination = true
+  }
+
+  tags = merge(local.common_tags, {
+    Name = "${var.cluster_name}-bastion"
+    Role = "bastion"
+  })
 }
 
 # Outputs
@@ -322,6 +437,16 @@ output "worker_nodes_security_group_id" {
 output "bastion_security_group_id" {
   description = "Security group ID for bastion host"
   value       = aws_security_group.bastion.id
+}
+
+output "bastion_public_ip" {
+  description = "Public IP address of bastion host"
+  value       = var.enable_bastion_host ? aws_instance.bastion[0].public_ip : null
+}
+
+output "bastion_instance_id" {
+  description = "Instance ID of bastion host"
+  value       = var.enable_bastion_host ? aws_instance.bastion[0].id : null
 }
 
 output "iam_instance_profile_name" {

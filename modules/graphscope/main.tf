@@ -5,13 +5,13 @@ resource "null_resource" "deploy_graphscope" {
     destination = "/home/graphscope/deploy-graphscope.sh"
 
     connection {
-      type                 = "ssh"
-      user                 = var.user
-      host                 = var.controller_private_ip
-      private_key          = file(var.ssh_private_key_path)
-      bastion_host         = var.bastion_public_ip
-      bastion_user         = var.bastion_user
-      bastion_private_key  = file(var.ssh_private_key_path)
+      type                = "ssh"
+      user                = var.user
+      host                = var.controller_private_ip
+      private_key         = file(var.ssh_private_key_path)
+      bastion_host        = var.bastion_public_ip
+      bastion_user        = var.bastion_user
+      bastion_private_key = file(var.ssh_private_key_path)
     }
   }
 
@@ -20,25 +20,25 @@ resource "null_resource" "deploy_graphscope" {
     destination = "/home/graphscope/helm-deployment.yaml"
 
     connection {
-      type                 = "ssh"
-      user                 = var.user
-      host                 = var.controller_private_ip
-      private_key          = file(var.ssh_private_key_path)
-      bastion_host         = var.bastion_public_ip
-      bastion_user         = var.bastion_user
-      bastion_private_key  = file(var.ssh_private_key_path)
+      type                = "ssh"
+      user                = var.user
+      host                = var.controller_private_ip
+      private_key         = file(var.ssh_private_key_path)
+      bastion_host        = var.bastion_public_ip
+      bastion_user        = var.bastion_user
+      bastion_private_key = file(var.ssh_private_key_path)
     }
   }
 
   provisioner "remote-exec" {
     connection {
-      type                 = "ssh"
-      user                 = var.user
-      host                 = var.controller_private_ip
-      private_key          = file(var.ssh_private_key_path)
-      bastion_public_ip    = var.bastion_public_ip
-      bastion_user         = var.bastion_user
-      bastion_private_key  = file(var.ssh_private_key_path)
+      type                = "ssh"
+      user                = var.user
+      host                = var.controller_private_ip
+      private_key         = file(var.ssh_private_key_path)
+      bastion_public_ip   = var.bastion_public_ip
+      bastion_user        = var.bastion_user
+      bastion_private_key = file(var.ssh_private_key_path)
     }
 
     inline = [

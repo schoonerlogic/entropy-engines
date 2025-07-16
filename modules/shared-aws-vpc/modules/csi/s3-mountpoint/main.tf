@@ -16,7 +16,7 @@ resource "helm_release" "s3_csi_driver" {
   values = [
     yamlencode({
       driver = {
-        region = var.aws_region
+        region    = var.aws_region
         mountPath = "/mnt/s3"
         logging = {
           level = "info"
@@ -36,12 +36,12 @@ resource "kubernetes_storage_class" "s3_sc" {
   provisioner = "s3.csi.aws.com"
 
   parameters = {
-    bucketName = var.bucket_name
-    region     = var.aws_region
+    bucketName   = var.bucket_name
+    region       = var.aws_region
     mountOptions = ""
   }
 
-  reclaim_policy        = "Retain"
-  volume_binding_mode   = "Immediate"
+  reclaim_policy         = "Retain"
+  volume_binding_mode    = "Immediate"
   allow_volume_expansion = false
 }

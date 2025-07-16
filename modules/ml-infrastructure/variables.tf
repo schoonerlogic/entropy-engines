@@ -30,17 +30,17 @@ variable "cluster_name" {
 
 variable "models" {
   description = "List of Hugging Face models to download"
-  type        = list(object({
-    model_id = string
+  type = list(object({
+    model_id    = string
     destination = string
   }))
   default = [
     {
-      model_id = "distilbert-base-uncased",
+      model_id    = "distilbert-base-uncased",
       destination = "nlp/distilbert"
     },
     {
-      model_id = "microsoft/resnet-50",
+      model_id    = "microsoft/resnet-50",
       destination = "vision/resnet"
     }
   ]

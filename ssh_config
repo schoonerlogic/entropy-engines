@@ -1,0 +1,38 @@
+# SSH Config for Entropy Engines Demo Cluster
+# Generated automatically by Terraform
+
+Host entropy-bastion
+    HostName 44.223.23.42
+    User ubuntu
+    IdentityFile ~/.ssh/lw.pem
+    ForwardAgent yes
+
+Host entropy-controller-0
+    HostName 10.0.1.232
+    User ubuntu
+    IdentityFile ~/.ssh/lw.pem
+    ProxyJump entropy-bastion
+
+Host entropy-cpu-worker-0
+    HostName 10.0.1.155
+    User ubuntu
+    IdentityFile ~/.ssh/lw.pem
+    ProxyJump entropy-bastion
+
+Host entropy-nats-0
+    HostName 10.0.1.202
+    User ubuntu
+    IdentityFile ~/.ssh/lw.pem
+    ProxyJump entropy-bastion
+
+Host entropy-nats-1
+    HostName 10.0.2.190
+    User ubuntu
+    IdentityFile ~/.ssh/lw.pem
+    ProxyJump entropy-bastion
+
+Host entropy-nats-2
+    HostName 10.0.3.175
+    User ubuntu
+    IdentityFile ~/.ssh/lw.pem
+    ProxyJump entropy-bastion

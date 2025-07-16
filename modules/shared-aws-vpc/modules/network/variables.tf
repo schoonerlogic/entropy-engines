@@ -123,15 +123,15 @@ variable "enable_nats_messaging" {
 variable "nats_ports" {
   description = "NATS messaging ports"
   type = object({
-    client    = number
-    cluster   = number
-    leafnode  = number
+    client     = number
+    cluster    = number
+    leafnode   = number
     monitoring = number
   })
   default = {
-    client    = 4222
-    cluster   = 6222
-    leafnode  = 7422
+    client     = 4222
+    cluster    = 6222
+    leafnode   = 7422
     monitoring = 8222
   }
 }

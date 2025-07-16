@@ -4,7 +4,7 @@ locals {
   enabled_drivers = [
     var.enable_ebs ? "ebs" : null,
     var.enable_efs ? "efs" : null,
-    var.enable_s3  ? "s3"  : null
+    var.enable_s3 ? "s3" : null
   ]
 }
 
@@ -40,6 +40,6 @@ output "enabled_storage_classes" {
   value = {
     ebs = var.enable_ebs ? module.ebs[0].storage_class_name : null
     efs = var.enable_efs ? module.efs[0].storage_class_name : null
-    s3  = var.enable_s3  ? module.s3[0].storage_class_name  : null
+    s3  = var.enable_s3 ? module.s3[0].storage_class_name : null
   }
 }

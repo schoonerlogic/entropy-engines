@@ -1,11 +1,10 @@
 #!/bin/bash
 set -euo pipefail
 
-# Cloud-Agnostic Agentic Platform Deployment Script
-# Usage: ./deploy.sh [aws|gcp|azure] [plan|apply|destroy]
+# AWS Agentic Platform Deployment Script
+# Usage: ./deploy.sh [plan|apply|destroy]
 
-CLOUD_PROVIDER=${1:-aws}
-ACTION=${2:-plan}
+ACTION=${1:-plan}
 CLUSTER_NAME="agentic-platform"
 ENVIRONMENT="dev"
 
@@ -37,16 +36,14 @@ check_prerequisites() {
         error "Terraform is not installed. Please install Terraform first."
     fi
     
-    # Check AWS CLI for AWS deployments
-    if [[ "$CLOUD_PROVIDER" == "aws" ]]; then
-        if ! command -v aws &> /dev/null; then
-            error "AWS CLI is not installed. Please install AWS CLI first."
-        fi
-        
-        # Check AWS credentials
-        if ! aws sts get-caller-identity &> /dev/null; then
-            error "AWS credentials not configured. Run 'aws configure' first."
-        fi
+    # Check AWS CLI
+    if ! command -v aws &> /dev/null; then
+        error "AWS CLI is not installed. Please install AWS CLI first."
+    fi
+    
+    # Check AWS credentials
+    if ! aws sts get-caller-identity &> /dev/null; then
+        error "AWS credentials not configured. Run 'aws configure' first."
     fi
     
     log "Prerequisites check passed"
@@ -69,40 +66,34 @@ create_ssh_key() {
     local key_name="agentic-platform-key"
     local key_path="~/.ssh/${key_name}"
     
-    if [[ "$CLOUD_PROVIDER" == "aws" ]]; then
-        if ! aws ec2 describe-key-pairs --key-names "$key_name" &> /dev/null; then
-            log "Creating SSH key pair: $key_name"
-            aws ec2 create-key-pair --key-name "$key_name" --query 'KeyMaterial' --output text > ~/.ssh/${key_name}.pem
-            chmod 400 ~/.ssh/${key_name}.pem
-            log "SSH key created: ~/.ssh/${key_name}.pem"
-        else
-            log "SSH key already exists: $key_name"
-        fi
+    if ! aws ec2 describe-key-pairs --key-names "$key_name" &> /dev/null; then
+        log "Creating SSH key pair: $key_name"
+        aws ec2 create-key-pair --key-name "$key_name" --query 'KeyMaterial' --output text > ~/.ssh/${key_name}.pem
+        chmod 400 ~/.ssh/${key_name}.pem
+        log "SSH key created: ~/.ssh/${key_name}.pem"
+    else
+        log "SSH key already exists: $key_name"
     fi
 }
 
 # Plan deployment
 plan_deployment() {
-    log "Planning deployment for $CLOUD_PROVIDER..."
+    log "Planning deployment..."
     
     terraform plan \
-        -var="cloud_provider=$CLOUD_PROVIDER" \
         -var="cluster_name=$CLUSTER_NAME" \
         -var="environment=$ENVIRONMENT" \
-        -out="tfplan-$CLOUD_PROVIDER"
-    
-    log "Plan saved to tfplan-$CLOUD_PROVIDER"
+        -out="tfplan"
 }
 
 # Apply deployment
 apply_deployment() {
-    log "Applying deployment for $CLOUD_PROVIDER..."
+    log "Applying deployment..."
     
-    if [[ -f "tfplan-$CLOUD_PROVIDER" ]]; then
-        terraform apply "tfplan-$CLOUD_PROVIDER"
+    if [[ -f "tfplan" ]]; then
+        terraform apply "tfplan"
     else
         terraform apply \
-            -var="cloud_provider=$CLOUD_PROVIDER" \
             -var="cluster_name=$CLUSTER_NAME" \
             -var="environment=$ENVIRONMENT" \
             -auto-approve
@@ -123,9 +114,8 @@ destroy_deployment() {
         exit 0
     fi
     
-    log "Destroying deployment for $CLOUD_PROVIDER..."
+    log "Destroying deployment..."
     terraform destroy \
-        -var="cloud_provider=$CLOUD_PROVIDER" \
         -var="cluster_name=$CLUSTER_NAME" \
         -var="environment=$ENVIRONMENT" \
         -auto-approve
@@ -137,7 +127,7 @@ destroy_deployment() {
 display_cluster_info() {
     log "Cluster Information:"
     echo "==================="
-    echo "Cloud Provider: $CLOUD_PROVIDER"
+    echo "Cloud Provider: AWS"
     echo "Cluster Name: $CLUSTER_NAME"
     echo "Environment: $ENVIRONMENT"
     echo ""
@@ -148,8 +138,7 @@ display_cluster_info() {
 
 # Main execution
 main() {
-    log "Starting deployment for Cloud-Agnostic Agentic Platform"
-    log "Cloud Provider: $CLOUD_PROVIDER"
+    log "Starting deployment for AWS Agentic Platform"
     log "Action: $ACTION"
     
     check_prerequisites

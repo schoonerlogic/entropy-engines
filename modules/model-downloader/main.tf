@@ -47,7 +47,7 @@ resource "aws_security_group" "model_downloader" {
 # IAM role for the downloader instance
 resource "aws_iam_role" "model_downloader" {
   name = "${var.instance_name}-role"
-  
+
   assume_role_policy = jsonencode({
     Version = "2012-10-17"
     Statement = [
@@ -89,18 +89,18 @@ resource "aws_instance" "model_downloader" {
   subnet_id            = var.subnet_id
   security_groups      = [aws_security_group.model_downloader.id]
   iam_instance_profile = aws_iam_instance_profile.model_downloader.name
-  
+
   user_data = templatefile("${path.module}/scripts/model_downloader.sh.tpl", {
-    models        = jsonencode(var.models)
-    s3_bucket     = var.s3_bucket_name
-    aws_region    = data.aws_region.current.name
+    models     = jsonencode(var.models)
+    s3_bucket  = var.s3_bucket_name
+    aws_region = data.aws_region.current.name
   })
-  
+
   root_block_device {
     volume_size = 100 # Large enough for model downloads
     volume_type = "gp3"
   }
-  
+
   tags = merge(
     {
       Name = var.instance_name

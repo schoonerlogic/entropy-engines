@@ -6,11 +6,7 @@ variable "cluster_name" {
   type        = string
 }
 
-variable "kubernetes_version" {
-  description = "Kubernetes version to install"
-  type        = string
-  default     = "1.29.0"
-}
+# Worker node user data template is now in locals block above
 
 variable "control_plane_count" {
   description = "Number of control plane nodes"
@@ -64,13 +60,19 @@ variable "cloud_provider" {
 variable "cloud_config" {
   description = "Cloud-specific configuration"
   type = object({
-    region              = string
-    availability_zones  = list(string)
-    instance_profile    = string
-    security_group_ids  = list(string)
-    subnet_ids          = list(string)
-    vpc_id              = string
+    region             = string
+    availability_zones = list(string)
+    instance_profile   = string
+    security_group_ids = list(string)
+    subnet_ids         = list(string)
+    vpc_id             = string
   })
+}
+
+variable "kubernetes_version" {
+  description = "Kubernetes version"
+  type        = string
+  default     = "1.29.0"
 }
 
 # Generate a random token for kubeadm
@@ -89,55 +91,52 @@ resource "random_string" "certificate_key" {
 
 # Template for control plane initialization
 locals {
-  kubeadm_token      = random_string.kubeadm_token.result
-  certificate_key    = random_string.certificate_key.result
-  
+  kubeadm_token   = random_string.kubeadm_token.result
+  certificate_key = random_string.certificate_key.result
+
   # Cloud-specific configurations
   cloud_configs = {
     aws = {
-      cloud_provider = "aws"
+      cloud_provider    = "aws"
       cloud_config_path = "/etc/kubernetes/aws.conf"
     }
     gcp = {
-      cloud_provider = "gce"
+      cloud_provider    = "gce"
       cloud_config_path = "/etc/kubernetes/gce.conf"
     }
     azure = {
-      cloud_provider = "azure"
+      cloud_provider    = "azure"
       cloud_config_path = "/etc/kubernetes/azure.conf"
     }
   }
-  
+
   cloud_config = local.cloud_configs[var.cloud_provider]
 }
 
 # Control plane user data template
-data "template_file" "control_plane_init" {
-  template = file("${path.module}/templates/control-plane-init.sh.tftpl")
-  
-  vars = {
-    cluster_name        = var.cluster_name
-    kubernetes_version  = var.kubernetes_version
+locals {
+  control_plane_endpoint = "placeholder" # This needs to be calculated
+
+  control_plane_user_data = base64encode(templatefile("${path.module}/templates/control-plane-init.sh.tftpl", {
+    cluster_name       = var.cluster_name
+    kubernetes_version = var.kubernetes_version
     pod_cidr           = var.pod_cidr
     service_cidr       = var.service_cidr
     kubeadm_token      = local.kubeadm_token
     certificate_key    = local.certificate_key
-    cloud_provider     = local.cloud_config.cloud_provider
-    cloud_config_path  = local.cloud_config.cloud_config_path
-  }
-}
+    cloud_provider     = "aws"
+    cloud_config_path  = "/etc/kubernetes/aws.conf"
+  }))
 
-# Worker node user data template
-data "template_file" "worker_join" {
-  template = file("${path.module}/templates/worker-join.sh.tftpl")
-  
-  vars = {
-    cluster_name       = var.cluster_name
-    kubernetes_version = var.kubernetes_version
-    kubeadm_token      = local.kubeadm_token
-    cloud_provider     = local.cloud_config.cloud_provider
-    cloud_config_path  = local.cloud_config.cloud_config_path
-  }
+  worker_user_data = base64encode(templatefile("${path.module}/templates/worker-join.sh.tftpl", {
+    cluster_name           = var.cluster_name
+    kubernetes_version     = var.kubernetes_version
+    kubeadm_token          = local.kubeadm_token
+    certificate_key        = local.certificate_key
+    cloud_provider         = "aws"
+    cloud_config_path      = "/etc/kubernetes/aws.conf"
+    control_plane_endpoint = "placeholder"
+  }))
 }
 
 # Outputs for other modules
@@ -155,12 +154,12 @@ output "certificate_key" {
 
 output "control_plane_user_data" {
   description = "User data for control plane initialization"
-  value       = data.template_file.control_plane_init.rendered
+  value       = local.control_plane_user_data
 }
 
 output "worker_user_data" {
   description = "User data for worker node joining"
-  value       = data.template_file.worker_join.rendered
+  value       = local.worker_user_data
 }
 
 output "kubernetes_version" {

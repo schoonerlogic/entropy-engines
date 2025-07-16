@@ -51,7 +51,7 @@ variable "kubernetes_cidrs" {
 variable "availability_zones" {
   description = "List of availability zones to use"
   type        = list(string)
-  default     = null  # Will use data source if null
+  default     = null # Will use data source if null
 }
 
 variable "public_subnet_count" {
@@ -70,13 +70,13 @@ variable "private_subnet_count" {
 variable "ssh_allowed_cidrs" {
   description = "List of CIDR blocks allowed for SSH access"
   type        = list(string)
-  default     = []  # Empty by default for security
+  default     = [] # Empty by default for security
 }
 
 variable "bastion_allowed_cidrs" {
   description = "List of CIDR blocks allowed for bastion host access"
   type        = list(string)
-  default     = []  # Empty by default for security
+  default     = [] # Empty by default for security
 }
 
 variable "enable_bastion_host" {
@@ -118,7 +118,7 @@ variable "enable_kubernetes_tags" {
 variable "kubernetes_cluster_name" {
   description = "Name of the Kubernetes cluster for tagging"
   type        = string
-  default     = null  # Will use project name if null
+  default     = null # Will use project name if null
 }
 
 variable "enable_nats_messaging" {
@@ -130,15 +130,15 @@ variable "enable_nats_messaging" {
 variable "nats_ports" {
   description = "NATS messaging ports"
   type = object({
-    client    = number
-    cluster   = number
-    leafnode  = number
+    client     = number
+    cluster    = number
+    leafnode   = number
     monitoring = number
   })
   default = {
-    client    = 4222
-    cluster   = 6222
-    leafnode  = 7422
+    client     = 4222
+    cluster    = 6222
+    leafnode   = 7422
     monitoring = 8222
   }
 }
@@ -176,7 +176,7 @@ variable "enable_volume_encryption" {
 variable "kms_key_id" {
   description = "KMS key ID for EBS encryption"
   type        = string
-  default     = null  # Use AWS managed key if null
+  default     = null # Use AWS managed key if null
 }
 
 # Cost Optimization

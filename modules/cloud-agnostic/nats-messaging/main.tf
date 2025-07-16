@@ -14,19 +14,13 @@ variable "cloud_provider" {
 variable "cloud_config" {
   description = "Cloud-specific configuration"
   type = object({
-    region              = string
-    availability_zones  = list(string)
-    instance_profile    = string
-    security_group_ids  = list(string)
-    subnet_ids          = list(string)
-    vpc_id              = string
+    region             = string
+    availability_zones = list(string)
+    instance_profile   = string
+    security_group_ids = list(string)
+    subnet_ids         = list(string)
+    vpc_id             = string
   })
-}
-
-variable "nats_version" {
-  description = "NATS server version"
-  type        = string
-  default     = "2.10.0"
 }
 
 variable "nats_cluster_size" {
@@ -41,6 +35,12 @@ variable "nats_instance_type" {
   default     = "t3.small"
 }
 
+variable "nats_version" {
+  description = "NATS server version"
+  type        = string
+  default     = "2.10.0"
+}
+
 # Local values
 locals {
   common_tags = {
@@ -52,36 +52,30 @@ locals {
 }
 
 # NATS configuration template
-data "template_file" "nats_config" {
-  template = file("${path.module}/templates/nats-server.conf.tftpl")
-  
-  vars = {
+locals {
+  nats_config = templatefile("${path.module}/templates/nats-server.conf.tftpl", {
     cluster_name = var.cluster_name
     cluster_size = var.nats_cluster_size
-  }
-}
+  })
 
-# NATS user data template
-data "template_file" "nats_user_data" {
-  template = file("${path.module}/templates/nats-setup.sh.tftpl")
-  
-  vars = {
+  nats_user_data = base64encode(templatefile("${path.module}/templates/nats-setup.sh.tftpl", {
     nats_version = var.nats_version
-    nats_config  = data.template_file.nats_config.rendered
-  }
+    nats_config  = local.nats_config
+    ARCH         = "arm64" # Default for ARM64 instances
+  }))
 }
 
 # AWS NATS instances
 resource "aws_instance" "nats" {
   count = var.cloud_provider == "aws" ? var.nats_cluster_size : 0
 
-  ami                    = data.aws_ami.ubuntu.id
+  ami                    = data.aws_ami.ubuntu[0].id
   instance_type          = var.nats_instance_type
   subnet_id              = var.cloud_config.subnet_ids[count.index % length(var.cloud_config.subnet_ids)]
   vpc_security_group_ids = var.cloud_config.security_group_ids
   iam_instance_profile   = var.cloud_config.instance_profile
 
-  user_data = data.template_file.nats_user_data.rendered
+  user_data = local.nats_user_data
 
   tags = merge(local.common_tags, {
     Name = "${var.cluster_name}-nats-${count.index + 1}"
@@ -99,7 +93,7 @@ data "aws_ami" "ubuntu" {
   count = var.cloud_provider == "aws" ? 1 : 0
 
   most_recent = true
-  owners      = ["099720109477"]  # Canonical
+  owners      = ["099720109477"] # Canonical
 
   filter {
     name   = "name"
@@ -138,10 +132,10 @@ resource "aws_security_group" "nats" {
 
   # NATS cluster routing port
   ingress {
-    from_port   = 6222
-    to_port     = 6222
-    protocol    = "tcp"
-    self        = true
+    from_port = 6222
+    to_port   = 6222
+    protocol  = "tcp"
+    self      = true
   }
 
   # NATS leafnode port
@@ -192,3 +186,4 @@ output "nats_client_url" {
   description = "NATS client connection URL"
   value       = var.cloud_provider == "aws" ? "nats://${join(",", aws_instance.nats[*].private_ip)}:4222" : ""
 }
+
