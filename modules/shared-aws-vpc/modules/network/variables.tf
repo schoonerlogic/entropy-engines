@@ -142,6 +142,12 @@ variable "enable_gpu_nodes" {
   default     = true
 }
 
+variable "ubuntu_codename" {
+  description = "Canonical name"
+  type        = string
+  default     = "jammy" # jammy=22.04, focal=20.04
+}
+
 variable "instance_ami_architecture" {
   description = "Architecture for AMI selection (arm64 or x86_64)"
   type        = string
@@ -190,3 +196,52 @@ variable "bastion_allowed_ssh_cidrs" {
   type        = list(string)
   default     = []
 }
+
+# NEW: Accept organized config objects
+variable "network_config" {
+  description = "Network configuration object"
+  type = object({
+    vpc_cidr = optional(string, "10.0.0.0/16")
+    kubernetes_cidrs = optional(object({
+      pod_cidr     = string
+      service_cidr = string
+      }), {
+      pod_cidr     = "10.244.0.0/16"
+      service_cidr = "10.96.0.0/12"
+    })
+    availability_zones   = optional(list(string), null)
+    public_subnet_count  = optional(number, 2)
+    private_subnet_count = optional(number, 3)
+  })
+  default = {}
+}
+
+variable "security_config" {
+  description = "Security configuration object"
+  type = object({
+    ssh_allowed_cidrs     = optional(list(string), [])
+    bastion_allowed_cidrs = optional(list(string), [])
+    enable_bastion_host   = optional(bool, true)
+    bastion_instance_type = optional(string, "t3.micro")
+    ssh_key_name          = string
+  })
+  # Make it optional during migration
+  default = {
+    ssh_key_name          = ""
+    ssh_allowed_cidrs     = []
+    bastion_allowed_cidrs = []
+    enable_bastion_host   = true
+    bastion_instance_type = "t3.micro"
+  }
+}
+
+variable "nat_config" {
+  description = "NAT configuration object"
+  type = object({
+    nat_type           = optional(string, "gateway")
+    single_nat_gateway = optional(bool, true)
+  })
+  default = {}
+}
+
+

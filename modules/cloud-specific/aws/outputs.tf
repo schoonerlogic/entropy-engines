@@ -35,20 +35,20 @@ output "worker_nodes_security_group_id" {
   value       = aws_security_group.worker_nodes.id
 }
 
-output "bastion_security_group_id" {
-  description = "Security group ID for bastion host"
-  value       = aws_security_group.bastion.id
-}
-
-output "bastion_public_ip" {
-  description = "Public IP address of bastion host"
-  value       = var.enable_bastion_host ? aws_instance.bastion[0].public_ip : null
-}
-
-output "bastion_instance_id" {
-  description = "Instance ID of bastion host"
-  value       = var.enable_bastion_host ? aws_instance.bastion[0].id : null
-}
+# output "bastion_security_group_id" {
+#   description = "Security group ID for bastion host"
+#   value       = aws_security_group.bastion.id
+# }
+#
+# output "bastion_public_ip" {
+#   description = "Public IP address of bastion host"
+#   value       = var.enable_bastion_host ? aws_instance.bastion[0].public_ip : null
+# }
+#
+# output "bastion_instance_id" {
+#   description = "Instance ID of bastion host"
+#   value       = var.enable_bastion_host ? aws_instance.bastion[0].id : null
+# }
 
 output "iam_instance_profile_name" {
   description = "Name of the IAM instance profile"
@@ -59,3 +59,4 @@ output "availability_zones" {
   description = "List of availability zones"
   value       = var.availability_zones
 }
+

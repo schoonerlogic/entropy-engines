@@ -1,3 +1,6 @@
+variable "aws_region" {}
+variable "project" {}
+
 variable "instance_count" {}
 variable "subnet_ids" {}
 variable "instance_type" {}
@@ -23,10 +26,6 @@ variable "instance_interruption_behavior" {
   default = "terminate"
 }
 variable "k8s_user" {}
-
-variable "ssm_join_command_path" {}
-
-variable "ssm_certificate_key_path" {}
 
 variable "enable_provisioner" {
   default = false
@@ -74,7 +73,6 @@ variable "base_ami_id" {
   type        = string
 }
 
-variable "spot_fleet_iam_role_arn" {}
 
 variable "controller_role_name" {
   description = "Name of the IAM role for controller instances"

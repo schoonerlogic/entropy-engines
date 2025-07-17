@@ -2,37 +2,37 @@
 
 output "kubeadm_token" {
   description = "Kubeadm token for joining nodes"
-  value       = local.kubeadm_token
+  value       = module.kubernetes-cluster.kubeadm_token
   sensitive   = true
 }
 
 output "certificate_key" {
   description = "Certificate key for joining control plane nodes"
-  value       = local.certificate_key
+  value       = module.kubernetes-cluster.certificate_key
   sensitive   = true
 }
 
 output "control_plane_user_data" {
   description = "User data for control plane initialization"
-  value       = local.control_plane_user_data
+  value       = module.kubernetes-cluster.control_plane_user_data
 }
 
 output "worker_user_data" {
   description = "User data for worker node joining"
-  value       = local.worker_user_data
+  value       = module.kubernetes-cluster.worker_user_data
 }
 
 output "kubernetes_version" {
   description = "Kubernetes version"
-  value       = var.kubernetes_version
+  value       = module.kubernetes-cluster.kubernetes_version
 }
 
 output "pod_cidr" {
   description = "Pod CIDR range"
-  value       = var.pod_cidr
+  value       = module.kubernetes-cluster.pod_cidr
 }
 
 output "service_cidr" {
   description = "Service CIDR range"
-  value       = var.service_cidr
+  value       = module.kubernetes-clusterr.service_cidr
 }

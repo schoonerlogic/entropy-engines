@@ -1,5 +1,8 @@
 # modules/vpc-endpoints/main.tf
-
+locals {
+  # Extract the enable flag
+  create_vpc_endpoints = var.cost_optimization.enable_vpc_endpoints
+}
 
 # S3 Gateway endpoint (free)
 resource "aws_vpc_endpoint" "s3" {

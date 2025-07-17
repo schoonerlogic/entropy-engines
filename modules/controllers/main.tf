@@ -1,5 +1,4 @@
 locals {
-
   # Create a map where keys are indices (0, 1, ...) and values are instance IDs
   # The keys are known at plan time based on the list length (derived from instance_count)
   instance_id_map = {
@@ -236,8 +235,8 @@ resource "null_resource" "kubernetes_control_plane_join" {
       pod_cidr_block         = var.pod_cidr_block
       service_cidr_block     = var.service_cidr_block
 
-      ssm_join_command_path    = var.ssm_join_command_path
-      ssm_certificate_key_path = var.ssm_certificate_key_path
+      ssm_join_command_path    = local.ssm_join_command_path
+      ssm_certificate_key_path = local.ssm_certificate_key_path
     })
     destination = "/tmp/configure-controller.sh"
   }
@@ -338,8 +337,8 @@ resource "null_resource" "apply_cluster_addons" {
 
 locals {
   upload_join_command = templatefile("${path.module}/templates/upload-join-command.tftpl", {
-    ssm_join_command_path    = var.ssm_join_command_path,
-    ssm_certificate_key_path = var.ssm_certificate_key_path
+    ssm_join_command_path    = local.ssm_join_command_path,
+    ssm_certificate_key_path = local.ssm_certificate_key_path
   })
 }
 
@@ -386,5 +385,31 @@ resource "null_resource" "upload_join_info_to_ssm" {
   }
 }
 
+data "aws_caller_identity" "current" {
+  # This data source requires no configuration arguments.
+}
 
+locals {
+
+  defined_ssm_parameters_suffixes = [
+    "/join-command/certificate/key",
+    "/control-plane/join-command"
+  ]
+
+  # Build the full SSM parameter paths by prepending a static prefix and the cluster name.
+  ssm_parameters = [
+    for suffix in local.defined_ssm_parameters_suffixes : "${var.project}/${var.cluster_name}${suffix}"
+  ]
+
+  # Create ARNs for each SSM parameter path.
+  ssm_parameters_arns = [
+    for param in local.ssm_parameters :
+    "arn:aws:ssm:${var.aws_region}:${data.aws_caller_identity.current.account_id}:parameter/${param}"
+  ]
+
+  ssm_kms_arn = "arn:aws:kms:${var.aws_region}:${data.aws_caller_identity.current.account_id}:alias/aws/ssm"
+
+  ssm_join_command_path    = "/${var.project}/${var.cluster_name}/control-plane/join-command"
+  ssm_certificate_key_path = "/${var.project}/${var.cluster_name}/join-command/certificate/key"
+}
 

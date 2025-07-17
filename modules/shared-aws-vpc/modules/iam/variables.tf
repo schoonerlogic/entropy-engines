@@ -15,6 +15,11 @@ variable "project" {
   default = "Astral-Maris"
 }
 
+variable "environment" {
+  type    = string
+  default = "dev"
+}
+
 variable "tooling_tags" {
   description = "A map of tags to apply to all tooling resources."
   type        = map(string)

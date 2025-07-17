@@ -1,232 +1,125 @@
 # Cloud-Agnostic AWS VPC Module Variables
 # Enhanced for Kubernetes and multi-cloud compatibility
+# Organized into logical groups for better maintainability
 
-# Core Configuration
-variable "aws_region" {
-  description = "AWS region for deployment"
-  type        = string
-  default     = "us-east-1"
-}
+# Core Configuration Object
+variable "core_config" {
+  description = "Core configuration settings"
+  type = object({
+    aws_region  = optional(string, "us-east-1")
+    environment = optional(string, "dev")
+    project     = optional(string, "agentic-platform")
+    vpc_name    = string
+  })
 
-variable "environment" {
-  description = "Environment level (dev, staging, prod)"
-  type        = string
-  default     = "dev"
   validation {
-    condition     = contains(["dev", "staging", "prod"], var.environment)
+    condition     = contains(["dev", "staging", "prod"], var.core_config.environment)
     error_message = "Environment must be one of: dev, staging, prod."
   }
 }
 
-variable "project" {
-  description = "Project name used for resource naming"
-  type        = string
-  default     = "agentic-platform"
-}
-
-variable "vpc_name" {
-  description = "Name of VPC"
-  type        = string
-}
-
-# Network Configuration
-variable "vpc_cidr" {
-  description = "CIDR block for VPC"
-  type        = string
-  default     = "10.0.0.0/16"
-}
-
-variable "kubernetes_cidrs" {
-  description = "Kubernetes networking CIDRs"
+# Network Configuration Object
+variable "network_config" {
+  description = "Network configuration settings"
   type = object({
-    pod_cidr     = string
-    service_cidr = string
+    vpc_cidr = optional(string, "10.0.0.0/16")
+    kubernetes_cidrs = optional(object({
+      pod_cidr     = string
+      service_cidr = string
+      }), {
+      pod_cidr     = "10.244.0.0/16"
+      service_cidr = "10.96.0.0/12"
+    })
+    availability_zones   = optional(list(string), null) # Will use data source if null
+    public_subnet_count  = optional(number, 2)
+    private_subnet_count = optional(number, 3)
   })
-  default = {
-    pod_cidr     = "10.244.0.0/16"
-    service_cidr = "10.96.0.0/12"
-  }
+  default = {}
 }
 
-variable "availability_zones" {
-  description = "List of availability zones to use"
-  type        = list(string)
-  default     = null # Will use data source if null
+# Security Configuration Object
+variable "security_config" {
+  description = "Security configuration settings"
+  type = object({
+    ssh_allowed_cidrs     = optional(list(string), []) # Empty by default for security
+    bastion_allowed_cidrs = optional(list(string), []) # Empty by default for security
+    enable_bastion_host   = optional(bool, true)
+    bastion_instance_type = optional(string, "t3.micro")
+    ssh_key_name          = string
+  })
 }
 
-variable "public_subnet_count" {
-  description = "Number of public subnets to create"
-  type        = number
-  default     = 2
-}
+# NAT Configuration Object
+variable "nat_config" {
+  description = "NAT configuration settings"
+  type = object({
+    nat_type           = optional(string, "gateway")
+    single_nat_gateway = optional(bool, true)
+  })
+  default = {}
 
-variable "private_subnet_count" {
-  description = "Number of private subnets to create"
-  type        = number
-  default     = 3
-}
-
-# Security Configuration
-variable "ssh_allowed_cidrs" {
-  description = "List of CIDR blocks allowed for SSH access"
-  type        = list(string)
-  default     = [] # Empty by default for security
-}
-
-variable "bastion_allowed_cidrs" {
-  description = "List of CIDR blocks allowed for bastion host access"
-  type        = list(string)
-  default     = [] # Empty by default for security
-}
-
-variable "enable_bastion_host" {
-  description = "Enable creation of bastion host"
-  type        = bool
-  default     = true
-}
-
-variable "bastion_instance_type" {
-  description = "Instance type for bastion host"
-  type        = string
-  default     = "t3.micro"
-}
-
-# NAT Configuration
-variable "nat_type" {
-  description = "Type of NAT to use: gateway, instance, or none"
-  type        = string
-  default     = "gateway"
   validation {
-    condition     = contains(["gateway", "instance", "none"], var.nat_type)
+    condition     = contains(["gateway", "instance", "none"], var.nat_config.nat_type)
     error_message = "NAT type must be one of: gateway, instance, none."
   }
 }
 
-variable "single_nat_gateway" {
-  description = "Use single NAT gateway for cost optimization"
-  type        = bool
-  default     = true
-}
-
-# Kubernetes Integration
-variable "enable_kubernetes_tags" {
-  description = "Add Kubernetes-specific tags to subnets"
-  type        = bool
-  default     = true
-}
-
-variable "kubernetes_cluster_name" {
-  description = "Name of the Kubernetes cluster for tagging"
-  type        = string
-  default     = null # Will use project name if null
-}
-
-variable "enable_nats_messaging" {
-  description = "Enable NATS messaging security groups"
-  type        = bool
-  default     = true
-}
-
-variable "nats_ports" {
-  description = "NATS messaging ports"
+# Kubernetes Configuration Object
+variable "kubernetes_config" {
+  description = "Kubernetes integration settings"
   type = object({
-    client     = number
-    cluster    = number
-    leafnode   = number
-    monitoring = number
+    enable_kubernetes_tags = optional(bool, true)
+    cluster_name           = optional(string, null) # Will use project name if null
+    enable_nats_messaging  = optional(bool, true)
+    nats_ports = optional(object({
+      client     = number
+      cluster    = number
+      leafnode   = number
+      monitoring = number
+      }), {
+      client     = 4222
+      cluster    = 6222
+      leafnode   = 7422
+      monitoring = 8222
+    })
+    enable_gpu_nodes = optional(bool, true)
   })
-  default = {
-    client     = 4222
-    cluster    = 6222
-    leafnode   = 7422
-    monitoring = 8222
-  }
+  default = {}
 }
 
-variable "enable_gpu_nodes" {
-  description = "Enable GPU-specific security groups and configurations"
-  type        = bool
-  default     = true
+# Instance Configuration Object
+variable "instance_config" {
+  description = "Instance configuration settings"
+  type = object({
+    ami_architecture         = optional(string, "arm64")
+    ubuntu_version           = optional(string, "22.04")
+    enable_volume_encryption = optional(bool, true)
+    kms_key_id               = optional(string, null) # Use AWS managed key if null
+  })
+  default = {}
 }
 
-# Instance Configuration
-variable "ssh_key_name" {
-  description = "Name of the SSH key pair"
-  type        = string
+# Cost Optimization Object
+variable "cost_optimization" {
+  description = "Cost optimization settings"
+  type = object({
+    enable_spot_instances = optional(bool, true)
+    enable_vpc_endpoints  = optional(bool, true)
+  })
+  default = {}
 }
 
-variable "instance_ami_architecture" {
-  description = "Architecture for AMI selection (arm64 or x86_64)"
-  type        = string
-  default     = "arm64"
-}
+# Legacy Configuration Object (optional for backward compatibility)
+variable "legacy_config" {
+  description = "Legacy configuration for backward compatibility"
+  type = object({
+    bastion_cidr         = optional(string, "0.0.0.0/0")
+    ssh_public_key_path  = optional(string, "~/.ssh/lwpub.pem")
+    ssh_private_key_path = optional(string, "~/.ssh/lw.pem")
+    github_owner         = optional(string, "")
+    github_token         = optional(string, "")
+  })
+  default = {}
 
-variable "ubuntu_version" {
-  description = "Ubuntu version for AMI selection"
-  type        = string
-  default     = "22.04"
-}
-
-variable "enable_volume_encryption" {
-  description = "Enable encryption for EBS volumes"
-  type        = bool
-  default     = true
-}
-
-variable "kms_key_id" {
-  description = "KMS key ID for EBS encryption"
-  type        = string
-  default     = null # Use AWS managed key if null
-}
-
-# Cost Optimization
-variable "enable_spot_instances" {
-  description = "Enable spot instance support"
-  type        = bool
-  default     = true
-}
-
-variable "enable_vpc_endpoints" {
-  description = "Enable VPC endpoints for cost optimization"
-  type        = bool
-  default     = true
-}
-
-# Legacy variables (for backward compatibility)
-variable "bastion_cidr" {
-  description = "Legacy CIDR block for bastion host access (deprecated, use bastion_allowed_cidrs)"
-  type        = string
-  default     = "0.0.0.0/0"
-}
-
-variable "ssh_public_key_path" {
-  description = "Path to SSH public key (legacy)"
-  type        = string
-  default     = "~/.ssh/lwpub.pem"
-}
-
-variable "ssh_private_key_path" {
-  description = "Path to SSH private key (legacy)"
-  type        = string
-  default     = "~/.ssh/lw.pem"
-}
-
-variable "github_owner" {
-  description = "GitOps repository owner (legacy)"
-  type        = string
-  default     = ""
-}
-
-variable "github_token" {
-  description = "Github PAT (legacy)"
-  type        = string
-  sensitive   = true
-  default     = ""
-}
-
-variable "onepassword_token" {
-  description = "1Password token for Terraform (legacy)"
-  type        = string
-  sensitive   = true
-  default     = ""
+  sensitive = true # Mark as sensitive due to tokens
 }

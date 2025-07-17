@@ -76,17 +76,17 @@ output "nat_gateway_eip_allocation_ids" {
 # --- Bastion Host Outputs ---
 output "bastion_instance_id" {
   description = "The ID of the Bastion host instance"
-  value       = aws_instance.bastion.id
+  value       = aws_instance.bastion[0].id
 }
 
 output "bastion_public_ip" {
   description = "The public IP address of the Bastion host"
-  value       = aws_instance.bastion.public_ip
+  value       = aws_instance.bastion[0].public_ip
 }
 
 output "bastion_private_ip" {
   description = "The private IP address of the Bastion host"
-  value       = aws_instance.bastion.private_ip
+  value       = aws_instance.bastion[0].private_ip
 }
 
 # --- Security Group Outputs ---
@@ -112,7 +112,7 @@ output "bastion_host_security_group_id" {
 
 output "vpc_endpoints_security_group_id" {
   description = "The ID of the VPC endpoints security group"
-  value       = aws_security_group.vpc_endpoints.id
+  value       = aws_security_group.vpc_endpoints[0].id
 }
 
 # --- Other Useful Outputs ---

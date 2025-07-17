@@ -10,7 +10,7 @@ locals {
   azs = var.availability_zones != null ? var.availability_zones : slice(data.aws_availability_zones.available.names, 0, max(var.public_subnet_count, var.private_subnet_count))
 
   # Use provided CIDRs or defaults
-  vpc_cidr_block     = var.vpc_cidr
+  vpc_cidr_block     = local.vpc_cidr
   pod_cidr_block     = var.kubernetes_cidrs.pod_cidr
   service_cidr_block = var.kubernetes_cidrs.service_cidr
   cluster_dns_ip     = cidrhost(var.kubernetes_cidrs.service_cidr, 10)
@@ -53,6 +53,26 @@ locals {
   )
 }
 
+# modules/network/main.tf - Use organized configs with fallbacks
+locals {
+  # Use organized config values with fallbacks to individual variables
+  vpc_cidr = var.network_config.vpc_cidr
+
+  # For SSH key, prefer organized config but fall back to individual variable
+  ssh_key_name = var.security_config.ssh_key_name != "" ? var.security_config.ssh_key_name : var.ssh_key_name
+
+  # For NAT type, prefer organized config but fall back to individual variable
+  nat_type = var.nat_config.nat_type
+
+  # For bastion, use organized config
+  enable_bastion        = var.security_config.enable_bastion_host
+  bastion_instance_type = var.security_config.bastion_instance_type
+
+  # Availability zones - use from config or data source
+  availability_zones = var.network_config.availability_zones != null ? var.network_config.availability_zones : data.aws_availability_zones.available.names
+}
+
+
 # VPC Configuration
 module "vpc" {
   source  = "terraform-aws-modules/vpc/aws"
@@ -91,7 +111,12 @@ data "aws_ami" "ubuntu" {
 
   filter {
     name   = "name"
-    values = ["ubuntu/images/hvm-ssd/ubuntu-${var.ubuntu_version}-*-${var.instance_ami_architecture}-server-*"]
+    values = ["ubuntu/images/hvm-ssd/ubuntu-${var.ubuntu_codename}-${var.ubuntu_version}-${var.instance_ami_architecture}-server-*"]
+  }
+
+  filter {
+    name   = "architecture"
+    values = [var.instance_ami_architecture]
   }
 
   filter {
@@ -126,12 +151,12 @@ resource "aws_nat_gateway" "nat_gateway" {
 }
 
 # Route for private subnets
-resource "aws_route" "private_nat" {
-  count                  = var.nat_type == "gateway" ? length(module.vpc.private_route_table_ids) : 0
-  route_table_id         = module.vpc.private_route_table_ids[count.index]
-  destination_cidr_block = "0.0.0.0/0"
-  nat_gateway_id         = aws_nat_gateway.nat_gateway[0].id
-}
+# resource "aws_route" "private_nat" {
+#   count                  = var.nat_type == "gateway" ? length(module.vpc.private_route_table_ids) : 0
+#   route_table_id         = module.vpc.private_route_table_ids[count.index]
+#   destination_cidr_block = "0.0.0.0/0"
+#   nat_gateway_id         = aws_nat_gateway.nat_gateway[0].id
+# }
 
 # Bastion Host (conditionally created)
 resource "aws_instance" "bastion" {
@@ -157,6 +182,18 @@ resource "aws_instance" "bastion" {
     Role = "bastion"
   })
 }
+# Your existing resources, but using the new locals
+resource "aws_vpc" "main" {
+  cidr_block           = local.vpc_cidr
+  enable_dns_hostnames = true
+  enable_dns_support   = true
+
+  tags = {
+    Name    = "${var.project}-${var.vpc_name}"
+    Project = var.project
+  }
+}
+
 
 ###########################################
 # Security Groups
@@ -456,3 +493,4 @@ resource "aws_vpc_endpoint" "s3_gateway" {
     Name = "${var.project}-${var.environment}-s3-gateway"
   })
 }
+

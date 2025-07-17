@@ -104,7 +104,7 @@ resource "aws_launch_template" "cpu_worker_lt" {
   description = "Launch template for ${var.cluster_name} CPU worker Spot Fleet"
   image_id    = var.base_ami_id
   key_name    = var.ssh_key_name
-  user_data   = base64encode(local.worker_user_data)
+  user_data   = local.worker_user_data
 
   iam_instance_profile {
     name = var.iam_instance_profile_name

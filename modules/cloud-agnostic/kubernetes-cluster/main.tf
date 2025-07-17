@@ -20,7 +20,7 @@ resource "random_string" "certificate_key" {
   special = false
   upper   = false
   lower   = true
-  number  = true
+  numeric = true
 }
 
 # Template for control plane initialization
@@ -46,7 +46,7 @@ locals {
 
   cloud_config = local.cloud_configs[var.cloud_provider]
 
-  control_plane_endpoint = var.control_plane_private_ip
+  control_plane_endpoint = var.control_plane_private_ips[0]
 
   control_plane_user_data = base64encode(templatefile("${path.module}/templates/control-plane-init.sh.tftpl", {
     cluster_name       = var.cluster_name
@@ -66,7 +66,8 @@ locals {
     certificate_key              = local.certificate_key
     cloud_provider               = "aws"
     cloud_config_path            = "/etc/kubernetes/aws.conf"
-    control_plane_endpoint       = var.control_plane_private_ip
+    control_plane_endpoint       = var.control_plane_private_ips[0]
     discovery_token_ca_cert_hash = var.discovery_token_ca_cert_hash
   }))
 }
+

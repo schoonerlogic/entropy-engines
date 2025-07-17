@@ -296,25 +296,26 @@ data "aws_ami" "ubuntu" {
 }
 
 # Bastion Host
-resource "aws_instance" "bastion" {
-  count = var.enable_bastion_host ? 1 : 0
+# resource "aws_instance" "bastion" {
+#   count = var.enable_bastion_host ? 1 : 0
+#
+#   ami                         = data.aws_ami.ubuntu.id
+#   instance_type               = var.bastion_instance_type
+#   subnet_id                   = module.vpc.public_subnets[0]
+#   vpc_security_group_ids      = [aws_security_group.bastion.id]
+#   associate_public_ip_address = true
+#   key_name                    = var.ssh_key_name
+#
+#   root_block_device {
+#     volume_type           = "gp3"
+#     volume_size           = 20
+#     encrypted             = true
+#     delete_on_termination = true
+#   }
+#
+#   tags = merge(local.common_tags, {
+#     Name = "${var.cluster_name}-bastion"
+#     Role = "bastion"
+#   })
+# }
 
-  ami                         = data.aws_ami.ubuntu.id
-  instance_type               = var.bastion_instance_type
-  subnet_id                   = module.vpc.public_subnets[0]
-  vpc_security_group_ids      = [aws_security_group.bastion.id]
-  associate_public_ip_address = true
-  key_name                    = var.ssh_key_name
-
-  root_block_device {
-    volume_type           = "gp3"
-    volume_size           = 20
-    encrypted             = true
-    delete_on_termination = true
-  }
-
-  tags = merge(local.common_tags, {
-    Name = "${var.cluster_name}-bastion"
-    Role = "bastion"
-  })
-}

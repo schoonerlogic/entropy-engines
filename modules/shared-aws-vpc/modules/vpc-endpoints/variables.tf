@@ -35,3 +35,11 @@ variable "enable_vpc_endpoints" {
   default     = true
 }
 
+variable "cost_optimization" {
+  description = "Cost optimization settings"
+  type = object({
+    enable_spot_instances = optional(bool, true)
+    enable_vpc_endpoints  = optional(bool, true)
+  })
+  default = {}
+}

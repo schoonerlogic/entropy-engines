@@ -1,5 +1,10 @@
 # Main Infrastructure Variables
-
+# Project name
+variable "project" {
+  description = "Name of project"
+  type        = string
+  default     = "entropy-engines"
+}
 # Core Configuration
 variable "cluster_name" {
   description = "Name of the Kubernetes cluster"
@@ -147,8 +152,21 @@ variable "enable_bastion_host" {
   default     = false
 }
 
+variable "bastion_user" {
+  description = "Login user for bastion"
+  type        = string
+  default     = "ubuntu"
+}
+
+variable "use_base_ami" {
+  description = "Use base AMI instead of user data for node initialization"
+  type        = bool
+  default     = false
+}
+
 variable "enable_volume_encryption" {
   description = "Enable EBS volume encryption"
   type        = bool
   default     = true
 }
+

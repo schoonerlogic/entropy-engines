@@ -32,7 +32,7 @@ variable "security_group_ids" {
   type        = list(string)
 }
 
-variable "iam_instance_profile" {
+variable "iam_instance_profile_name" {
   description = "IAM instance profile name"
   type        = string
 }
@@ -57,12 +57,12 @@ variable "cloud_config" {
 variable "kubernetes_version" {
   description = "Kubernetes version"
   type        = string
-  default     = "1.29.0"
+  default     = "1.33.0"
 }
 
-variable "control_plane_private_ip" {
+variable "control_plane_private_ips" {
   description = "Private IP address of the control plane node"
-  type        = string
+  type        = list(string)
 }
 
 variable "discovery_token_ca_cert_hash" {
@@ -70,3 +70,4 @@ variable "discovery_token_ca_cert_hash" {
   type        = string
   default     = "sha256:399a2eb369c7bd7b1f84a77d68e005a933eb4ee7e05db12f23fc69535d598e66"
 }
+

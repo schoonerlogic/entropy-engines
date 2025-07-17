@@ -178,7 +178,7 @@ output "cluster_dns_ip" {
 
 output "bastion_host_public_ip" {
   description = "Instance on public subnet to access private subnets"
-  value       = module.network.bastion_host.public_ip
+  value       = module.network.bastion_host[0].public_ip
 }
 
 
