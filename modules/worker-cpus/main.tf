@@ -1,38 +1,63 @@
 # modules/cpu-workers/main.tf
+locals {
+  ssh_key_name              = var.aws_config.ssh_key_name
+  base_ami_id               = var.aws_config.base_ami_id
+  subnet_ids                = var.aws_config.subnet_ids
+  iam_instance_profile_name = var.aws_config.iam_instance_profile_name
+  security_group_ids        = var.aws_config.security_group_ids
+  iam_policy_version        = var.aws_config.iam_policy_version
+
+  cluster_name           = var.k8s_config.cluster_name
+  instance_type          = var.k8s_config.instance_type
+  on_demand_count        = var.k8s_config.on_demand_count
+  spot_count             = var.k8s_config.spot_count
+  ssh_public_key_path    = var.k8s_config.ssh_public_key_path
+  k8s_user               = var.k8s_config.k8s_user
+  k8s_major_minor_stream = var.k8s_config.k8s_major_minor_stream
+  k8s_full_patch_version = var.k8s_config.k8s_full_patch_version
+  k8s_apt_package_suffix = var.k8s_config.k8s_apt_package_suffix
+  spot_instance_types    = var.k8s_config.spot_instance_types
+  cluster_dns_ip         = var.k8s_config.cluster_dns_ip
+  use_base_ami           = var.k8s_config.use_base_ami
+  
+  # Simplified S3 configuration - using defaults
+  s3_bucket_id = "${var.k8s_config.cluster_name}-bootstrap"
+  ssm_join_command_path = "/entropy-engines/kubeadm-join-command"
+  worker_cpu_bootstrap_script = [{key = "cpu-node-init.sh"}]
+}
 
 locals {
-
   # --- S3 Bootstrap Script Location ---
-  s3_bucket_id           = var.worker_s3_bootstrap_bucket.id
-  main_script_var_path   = "${path.module}/templates/instance-init-from-baked-ami.sh.tftpl"
-  loader_script_var_path = "${path.module}/scripts/seed-cpu-node-init.sh"
+  s3_bucket_id             = local.worker_s3_bootstrap_bucket.id
+  main_script_local_path   = "${path.module}/templates/instance-init-from-baked-ami.sh.tftpl"
+  loader_script_local_path = "${path.module}/scripts/seed-cpu-node-init.sh"
   # Include cluster name and hash in S3 key for organization and updates
 
-  # Variables for the MAIN script (instance-init-from-baked-ami.sh.tpl)
-  main_script_vars = {
-    target_user           = var.k8s_user              # Passed to the main script
-    ssm_join_command_path = var.ssm_join_command_path # Passed to the main script
-    k8s_major_minor_arg   = var.k8s_major_minor_stream
-    cluster_dns_ip        = var.cluster_dns_ip # For logging/info in main script (optional)
+  # local variables for the MAIN script (instance-init-from-baked-ami.sh.tpl)
+  main_script_locals = {
+    target_user           = local.k8s_user              # Passed to the main script
+    ssm_join_command_path = local.ssm_join_command_path # Passed to the main script
+    k8s_major_minor_arg   = local.k8s_major_minor_stream
+    cluster_dns_ip        = local.cluster_dns_ip # For logging/info in main script (optional)
   }
 
-  # Variables for the LOADER script (seed-cpu-node-init.sh)
-  loader_script_vars = {
-    s3_script_uri = "s3://${local.s3_bucket_id}/${var.worker_cpu_bootstrap_script[0].key}"
+  # local variables for the LOADER script (seed-cpu-node-init.sh)
+  loader_script_locals = {
+    s3_script_uri = "s3://${local.s3_bucket_id}/${local.worker_cpu_bootstrap_script[0].key}"
     # Arguments that the loader script will pass to the main script
-    k8s_user_arg          = local.main_script_vars.target_user
-    k8s_major_minor_arg   = local.main_script_vars.k8s_major_minor_arg
-    ssm_join_command_path = local.main_script_vars.ssm_join_command_path
-    cluster_dns_ip        = local.main_script_vars.cluster_dns_ip
+    k8s_user_arg          = local.main_script_locals.target_user
+    k8s_major_minor_arg   = local.main_script_locals.k8s_major_minor_arg
+    ssm_join_command_path = local.main_script_locals.ssm_join_command_path
+    cluster_dns_ip        = local.main_script_locals.cluster_dns_ip
   }
 
-  worker_user_data = var.use_base_ami ? null : base64encode(templatefile(local.loader_script_var_path, local.loader_script_vars))
-  #worker_user_data = base64encode(templatefile(local.loader_script_var_path, local.loader_script_vars))
+  worker_user_data = local.use_base_ami ? null : base64encode(templatefile(local.loader_script_local_path, local.loader_script_locals))
+  #worker_user_data = base64encode(templatefile(local.loader_script_local_path, local.loader_script_locals))
 
   # --- Instance Identification (Updated Logic) ---
   # Tag used to identify instances launched by the spot fleet OR regular instances
   worker_tag_key   = "ClusterWorkerType"
-  worker_tag_value = "${var.cluster_name}-cpu-worker"
+  worker_tag_value = "${local.cluster_name}-cpu-worker"
 
   # Fetch details of instances (either regular or from Spot Fleet) using tags
   # This data source runs *after* the instances/fleet are created/fulfilled
@@ -53,44 +78,44 @@ locals {
 
   # --- Prepare list of instance types for Spot Fleet ---
   # Use the provided list, or default to a single type if the list is null/empty (optional fallback)
-  effective_spot_instance_types = coalescelist(var.spot_instance_types, [var.instance_type])
+  effective_spot_instance_types = coalescelist(local.spot_instance_types, [local.instance_type])
 }
 
 # Uploads the large script file (cpu-node-init.sh) to S3
 resource "aws_s3_object" "worker_script" {
-  bucket = local.s3_bucket_id # Use bucket name from variable/var
-  key    = var.worker_cpu_bootstrap_script[0].key
-  source = local.main_script_var_path
+  bucket = local.s3_bucket_id # Use bucket name from localiable/local
+  key    = local.worker_cpu_bootstrap_script[0].key
+  source = local.main_script_local_path
 
   # Ensure Terraform replaces the object if the file content changes
-  etag = filemd5(local.main_script_var_path)
+  etag = filemd5(local.main_script_local_path)
 
   # Optional: Set content type for clarity
   content_type = "text/x-shellscript"
 
   tags = {
-    Name   = "worker-cpu-bootstrap-script-${var.cluster_name}"
-    Script = basename(local.main_script_var_path)
+    Name   = "worker-cpu-bootstrap-script-${local.cluster_name}"
+    Script = basename(local.main_script_local_path)
   }
 }
 
 
 #  ---  On-Demand Instances  ---
 resource "aws_instance" "worker_cpu" {
-  count = (var.cpu_on_demand_count + var.cpu_spot_count) > 0 ? 1 : 0
+  count = (local.on_demand_count + local.spot_count) > 0 ? 1 : 0
 
-  ami           = var.base_ami_id
-  instance_type = var.instance_type
-  key_name      = var.ssh_key_name
-  subnet_id     = element(var.subnet_ids, tonumber(count.index) % length(var.subnet_ids))
+  ami           = local.base_ami_id
+  instance_type = local.instance_type
+  key_name      = local.ssh_key_name
+  subnet_id     = element(local.subnet_ids, tonumber(count.index) % length(local.subnet_ids))
 
-  iam_instance_profile   = var.iam_instance_profile_name
-  vpc_security_group_ids = var.security_group_ids
+  iam_instance_profile   = local.iam_instance_profile_name
+  vpc_security_group_ids = local.security_group_ids
 
   tags = {
-    Name                      = "${var.cluster_name}-cpu-worker-${count.index}"
+    Name                      = "${local.cluster_name}-cpu-worker-${count.index}"
     "${local.worker_tag_key}" = local.worker_tag_value
-    Cluster                   = var.cluster_name
+    Cluster                   = local.cluster_name
   }
 
   user_data = local.worker_user_data
@@ -100,35 +125,35 @@ resource "aws_instance" "worker_cpu" {
 
 # Create Launch Template for Spot Fleet
 resource "aws_launch_template" "cpu_worker_lt" {
-  name_prefix = "${var.cluster_name}-cpu-worker-lt"
-  description = "Launch template for ${var.cluster_name} CPU worker Spot Fleet"
-  image_id    = var.base_ami_id
-  key_name    = var.ssh_key_name
+  name_prefix = "${local.cluster_name}-cpu-worker-lt"
+  description = "Launch template for ${local.cluster_name} CPU worker Spot Fleet"
+  image_id    = local.base_ami_id
+  key_name    = local.ssh_key_name
   user_data   = local.worker_user_data
 
   iam_instance_profile {
-    name = var.iam_instance_profile_name
+    name = local.iam_instance_profile_name
   }
 
-  vpc_security_group_ids = var.security_group_ids
+  vpc_security_group_ids = local.security_group_ids
 
   tag_specifications {
     resource_type = "instance"
     tags = {
-      Name = "${var.cluster_name}-cpu-worker-fleet"
+      Name = "${local.cluster_name}-cpu-worker-fleet"
       # Add the common tag for data source filtering
       "${local.worker_tag_key}" = local.worker_tag_value
-      Cluster                   = var.cluster_name
+      Cluster                   = local.cluster_name
     }
   }
   #  Tag volumes
   tag_specifications {
     resource_type = "instance"
     tags = {
-      Name    = "${var.cluster_name}-cpu-worker-volume"
-      Cluster = var.cluster_name
+      Name    = "${local.cluster_name}-cpu-worker-volume"
+      Cluster = local.cluster_name
 
-      IamPolicyVersion = var.iam_policy_version
+      IamPolicyVersion = local.iam_policy_version
     }
   }
 
@@ -138,15 +163,15 @@ resource "aws_launch_template" "cpu_worker_lt" {
 }
 
 resource "aws_autoscaling_group" "cpu_worker_asg" {
-  count = (var.cpu_on_demand_count + var.cpu_spot_count) > 0 ? 1 : 0
+  count = (local.on_demand_count + local.spot_count) > 0 ? 1 : 0
 
-  name_prefix      = "${var.cluster_name}-cpu-worker-asg"
-  desired_capacity = var.instance_count
-  min_size         = var.instance_count # Or a lower value if you allow scaling down
-  max_size         = var.instance_count # Or a higher value if you want to allow scaling up
+  name_prefix      = "${local.cluster_name}-cpu-worker-asg"
+  desired_capacity = local.instance_count
+  min_size         = local.instance_count # Or a lower value if you allow scaling down
+  max_size         = local.instance_count # Or a higher value if you want to allow scaling up
 
   # Specify all the subnets where instances can be launched
-  vpc_zone_identifier = var.subnet_ids
+  vpc_zone_identifier = local.subnet_ids
 
   mixed_instances_policy {
     launch_template {
