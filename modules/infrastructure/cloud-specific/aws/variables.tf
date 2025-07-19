@@ -1,10 +1,9 @@
-# Main  Variables
-variable "bootstrap_script" {
-  description = "Loading user_data for instance"
-  type        = list(string)
-}
+# Cloud-Agnostic AWS VPC Module Variables
+# Enhanced for Kubernetes and multi-cloud compatibility
+# Organized into logical groups for better maintainability
 
 # Core Configuration Object
+
 variable "core_config" {
   description = "Core configuration settings"
   type = object({
@@ -30,9 +29,8 @@ variable "network_config" {
     availability_zones   = optional(list(string), null) # Will use data source if null
     public_subnet_count  = optional(number, 2)
     private_subnet_count = optional(number, 3)
-    subnet_ids           = list(string)
-    iam_policy_version   = optional(string, "v1")
   })
+  default = {}
 }
 
 # Security Configuration Object
@@ -43,12 +41,7 @@ variable "security_config" {
     bastion_allowed_cidrs = optional(list(string), []) # Empty by default for security
     enable_bastion_host   = optional(bool, true)
     bastion_instance_type = optional(string, "t3.micro")
-    bastion_host          = string
-    bastion_user          = optional(string, "ubuntu")
-    ssh_public_key_path   = optional(string, "~/.ssh/lwpub.pem")
-    ssh_private_key_path  = optional(string, "~/.ssh/lw.pem")
     ssh_key_name          = string
-    security_group_ids    = list(string)
   })
 }
 
@@ -59,6 +52,7 @@ variable "nat_config" {
     nat_type           = optional(string, "gateway")
     single_nat_gateway = optional(bool, true)
   })
+  default = {}
 
   validation {
     condition     = contains(["gateway", "instance", "none"], var.nat_config.nat_type)
@@ -73,12 +67,6 @@ variable "kubernetes_config" {
     enable_kubernetes_tags = optional(bool, true)
     cluster_name           = optional(string, null) # Will use project name if null
     enable_nats_messaging  = optional(bool, true)
-
-    k8s_user               = string
-    k8s_major_minor_stream = string
-    k8s_full_patch_version = string
-    k8s_apt_package_suffix = string
-
     nats_ports = optional(object({
       client     = number
       cluster    = number
@@ -92,6 +80,7 @@ variable "kubernetes_config" {
     })
     enable_gpu_nodes = optional(bool, true)
   })
+  default = {}
 }
 
 # Instance Configuration Object
@@ -102,10 +91,8 @@ variable "instance_config" {
     ubuntu_version           = optional(string, "22.04")
     enable_volume_encryption = optional(bool, true)
     kms_key_id               = optional(string, null) # Use AWS managed key if null
-    instance_type            = list(string)
-    on_demand_count          = optional(number, 0)
-    spot_count               = optional(number, 0)
   })
+  default = {}
 }
 
 # Cost Optimization Object
@@ -131,49 +118,4 @@ variable "legacy_config" {
   default = {}
 
   sensitive = true # Mark as sensitive due to tokens
-}
-
-variable "k8s_config" {
-  description = "Kubernetes settings"
-  type = object({
-    ssh_private_key_path   = optional(string, "~/.ssh/lw.pem")
-    ssh_public_key_path    = optional(string, "~/.ssh/lw.pem.pub")
-    k8s_user               = optional(string, "ubuntu")
-    k8s_major_minor_stream = optional(string, "1.33.3")
-    k8s_full_patch_version = optional(string, "1.33.0")
-    k8s_apt_package_suffix = optional(string, "-00")
-  })
-}
-
-variable "k8s_control_plane_config" {
-  description = "Kubernetes settings"
-  type = object({
-    instance_count      = optional(number, 1)
-    instance_type       = optional(string, "t4g.medium")
-    on_demand_count     = optional(number, 0)
-    spot_count          = optional(number, 0)
-    spot_instance_types = optional(string, "m7g.medium")
-  })
-}
-
-variable "k8s_cpu_worker_config" {
-  description = "Kubernetes settings"
-  type = object({
-    instance_count     = optional(number, 1)
-    instance_type      = optional(string, "t4g.medium")
-    on_demand_count    = optional(number, 0)
-    spot_count         = optional(number, 0)
-    spot_instance_type = optional(string, "m7g.medium")
-  })
-}
-
-variable "k8s_gpu_worker_config" {
-  description = "Kubernetes settings"
-  type = object({
-    instance_count     = optional(number, 1)
-    instance_type      = optional(string, "t4g.medium")
-    on_demand_count    = optional(number, 0)
-    spot_count         = optional(number, 0)
-    spot_instance_type = optional(string, "m7g.medium")
-  })
 }

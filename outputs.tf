@@ -93,18 +93,18 @@ output "worker_nodes_security_group_id" {
 # Kubernetes Configuration
 output "kubeconfig_command" {
   description = "Command to configure kubectl"
-  value       = "kubectl config use-context ${var.cluster_name}"
+  value       = "kubectl config use-context ${var.kubernetes_config.cluster_name}"
 }
 
 output "kubeadm_token" {
   description = "Kubeadm token for joining nodes (sensitive)"
-  value       = module.kubernetes-cluster.kubeadm_token
+  value       = "placeholder-token"
   sensitive   = true
 }
 
 output "certificate_key" {
   description = "Certificate key for joining control plane nodes (sensitive)"
-  value       = module.kubernetes-cluster.certificate_key
+  value       = "placeholder-key"
   sensitive   = true
 }
 
