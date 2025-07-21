@@ -1,51 +1,21 @@
+# modules/infrastructure/cloud-specific/aws/outputs.tf
 
-# modules/iam/outputs.tf
+#===============================================================================
+# Network Module Outputs
+#===============================================================================
 
-output "ec2_role_arn" {
-  description = "The ARN of the general EC2 IAM role."
-  value       = module.iam.ec2_role_arn
+# VPC Outputs
+output "vpc_id" {
+  description = "The ID of the VPC"
+  value       = module.network.vpc_id
 }
-
-output "ec2_role_name" {
-  description = "The name of the general EC2 IAM role."
-  value       = module.iam.ec2_role_name
-}
-
-output "ec2_instance_profile_arn" {
-  description = "The ARN of the EC2 instance profile."
-  value       = module.iam.ec2_instance_profile_arn
-}
-
-output "ec2_instance_profile_name" {
-  description = "The name of the EC2 instance profile."
-  value       = module.iam.ec2_instance_profile_name
-}
-
-output "ec2_instance_connect_policy_arn" {
-  description = "The ARN of the IAM policy for EC2 Instance Connect."
-  value       = module.iam.ec2_instance_connect_policy_arn
-}
-
-output "spot_fleet_role_arn" {
-  description = "The ARN of the IAM role for the EC2 Spot Fleet service."
-  value       = module.iam.spot_fleet_role_arn
-}
-
-output "spot_fleet_role_name" {
-  description = "The name of the IAM role for the EC2 Spot Fleet service."
-  value       = module.iam.spot_fleet_role_name
-}
-
-
-# modules/network/outputs.tf
-
-# --- VPC Outputs (from terraform-aws-modules/vpc/aws) ---
 
 output "vpc_cidr_block" {
   description = "The CIDR block of the VPC"
   value       = module.network.vpc_cidr_block
 }
 
+# Subnet Outputs
 output "private_subnet_ids" {
   description = "List of IDs of private subnets"
   value       = module.network.private_subnet_ids
@@ -66,21 +36,29 @@ output "public_subnet_cidrs" {
   value       = module.network.public_subnet_cidrs
 }
 
+# Availability Zones
 output "availability_zones_used" {
   description = "List of Availability Zones used for the subnets"
   value       = module.network.availability_zones_used
 }
 
+# Gateway Outputs
 output "internet_gateway_id" {
   description = "The ID of the Internet Gateway"
   value       = module.network.internet_gateway_id
 }
 
-output "default_security_group_id" {
-  description = "The ID of the default security group for the VPC"
-  value       = module.network.default_security_group_id
+output "nat_gateway_ids" {
+  description = "List of NAT Gateway IDs"
+  value       = module.network.nat_gateway_ids
 }
 
+output "nat_gateway_public_ips" {
+  description = "List of public IP addresses for the NAT Gateways"
+  value       = module.network.nat_gateway_public_ips
+}
+
+# Route Table Outputs
 output "private_route_table_ids" {
   description = "List of IDs of private route tables"
   value       = module.network.private_route_table_ids
@@ -91,40 +69,10 @@ output "public_route_table_ids" {
   value       = module.network.public_route_table_ids
 }
 
+#===============================================================================
+# Security Group Outputs
+#===============================================================================
 
-# --- NAT Gateway Outputs (conditional) ---
-output "nat_gateway_ids" {
-  description = "List of NAT Gateway IDs (empty if NAT type is not 'gateway')"
-  value       = module.network.nat_gateway_ids
-}
-
-output "nat_gateway_public_ips" {
-  description = "List of public IP addresses for the NAT Gateways (empty if NAT type is not 'gateway')"
-  value       = module.network.nat_gateway_public_ips
-}
-
-output "nat_gateway_eip_allocation_ids" {
-  description = "List of EIP Allocation IDs for the NAT Gateways (empty if NAT type is not 'gateway')"
-  value       = module.network.nat_gateway_eip_allocation_ids
-}
-
-# --- Bastion Host Outputs ---
-output "bastion_instance_id" {
-  description = "The ID of the Bastion host instance"
-  value       = module.network.bastion_instance_id
-}
-
-output "bastion_public_ip" {
-  description = "The public IP address of the Bastion host"
-  value       = module.network.bastion_public_ip
-}
-
-output "bastion_private_ip" {
-  description = "The private IP address of the Bastion host"
-  value       = module.network.bastion_private_ip
-}
-
-# --- Security Group Outputs ---
 output "control_plane_security_group_id" {
   description = "The ID of the Kubernetes control plane security group"
   value       = module.network.control_plane_security_group_id
@@ -150,19 +98,80 @@ output "vpc_endpoints_security_group_id" {
   value       = module.network.vpc_endpoints_security_group_id
 }
 
-output "all_security_group_ids" {
-  description = "List of all security group IDs"
-  value = [
-    module.network.worker_nodes_security_group_id,
-    module.network.tooling_security_group_id,
-    module.network.bastion_host_security_group_id,
-    module.network.vpc_endpoints_security_group_id
-  ]
+output "nats_security_group_id" {
+  description = "The ID of the NATS messaging security group"
+  value       = module.network.nats_security_group_id
 }
-# --- Other Useful Outputs ---
+
+output "default_security_group_id" {
+  description = "The ID of the default security group for the VPC"
+  value       = module.network.default_security_group_id
+}
+
+#===============================================================================
+# Bastion Host Outputs
+#===============================================================================
+
+output "bastion_instance_id" {
+  description = "The ID of the Bastion host instance"
+  value       = module.network.bastion_instance_id
+}
+
+output "bastion_public_ip" {
+  description = "The public IP address of the Bastion host"
+  value       = module.network.bastion_public_ip
+}
+
+output "bastion_private_ip" {
+  description = "The private IP address of the Bastion host"
+  value       = module.network.bastion_private_ip
+}
+
+#===============================================================================
+# IAM Module Outputs
+#===============================================================================
+
+output "ec2_role_arn" {
+  description = "The ARN of the general EC2 IAM role"
+  value       = module.iam.ec2_role_arn
+}
+
+output "ec2_role_name" {
+  description = "The name of the general EC2 IAM role"
+  value       = module.iam.ec2_role_name
+}
+
+output "ec2_instance_profile_arn" {
+  description = "The ARN of the EC2 instance profile"
+  value       = module.iam.ec2_instance_profile_arn
+}
+
+output "ec2_instance_profile_name" {
+  description = "The name of the EC2 instance profile"
+  value       = module.iam.ec2_instance_profile_name
+}
+
+output "control_plane_role" {
+  description = "Role name for use with k8s cloud control plane"
+  value       = module.iam.control_plane_role
+}
+
+output "spot_fleet_role_arn" {
+  description = "The ARN of the IAM role for the EC2 Spot Fleet service"
+  value       = module.iam.spot_fleet_role_arn
+}
+
+output "spot_fleet_role_name" {
+  description = "The name of the IAM role for the EC2 Spot Fleet service"
+  value       = module.iam.spot_fleet_role_name
+}
+
+#===============================================================================
+# Kubernetes Configuration Outputs
+#===============================================================================
 
 output "environment" {
-  description = "The environment tag for this network"
+  description = "The environment tag for this infrastructure"
   value       = module.network.environment
 }
 
@@ -177,37 +186,29 @@ output "service_cidr_block" {
 }
 
 output "cluster_dns_ip" {
-  description = "The calculated IP address for the cluster DNS service (e.g., CoreDNS)"
+  description = "The calculated IP address for the cluster DNS service"
   value       = module.network.cluster_dns_ip
 }
 
-output "bastion_host_public_ip" {
-  description = "Instance on public subnet to access private subnets"
-  value       = module.network.bastion_host[0].public_ip
+#===============================================================================
+# Base AWS AMI Output
+#===============================================================================
+
+output "base_aws_ami" {
+  description = "Default operating system AMI ID"
+  value       = var.base_aws_ami
 }
 
-# Additional outputs needed by Kubernetes modules
-output "iam_instance_profile_name" {
-  description = "The name of the EC2 instance profile for Kubernetes nodes"
-  value       = module.iam.ec2_instance_profile_name
+#===============================================================================
+# S3 Bootstrap Bucket Outputs
+#===============================================================================
+
+output "bootstrap_bucket_name" {
+  description = "Name of the S3 bucket used for worker bootstrap"
+  value       = aws_s3_bucket.worker_s3_bootstrap_bucket.id
 }
 
-output "iam_instance_profile_arn" {
-  description = "The ARN of the EC2 instance profile for Kubernetes nodes"
-  value       = module.iam.ec2_instance_profile_arn
-}
-
-output "controller_security_group_id" {
-  description = "The ID of the Kubernetes control plane security group"
-  value       = module.network.control_plane_security_group_id
-}
-
-output "nats_security_group_id" {
-  description = "The ID of the NATS messaging security group"
-  value       = module.network.nats_security_group_id
-}
-
-output "vpc_id" {
-  description = "The ID of the VPC"
-  value       = module.network.vpc_id
+output "bootstrap_bucket_arn" {
+  description = "ARN of the S3 bucket used for worker bootstrap"
+  value       = aws_s3_bucket.worker_s3_bootstrap_bucket.arn
 }

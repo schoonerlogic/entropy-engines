@@ -1,28 +1,103 @@
 # modules/vpc-endpoints/main.tf
+# VPC Endpoints for cost optimization
+
+terraform {
+  required_providers {
+    aws = {
+      source  = "hashicorp/aws"
+      version = "~> 5.0"
+    }
+  }
+}
+
 locals {
-  # Extract the enable flag
-  create_vpc_endpoints = var.cost_optimization.enable_vpc_endpoints
+  # Common tags
+  common_tags = merge({
+    ManagedBy = "terraform"
+    Module    = "vpc-endpoints"
+  }, var.tags)
 }
 
-# S3 Gateway endpoint (free)
+# S3 Gateway VPC Endpoint (free and reduces NAT gateway costs)
 resource "aws_vpc_endpoint" "s3" {
-  vpc_id            = var.vpc_id
-  service_name      = "com.amazonaws.${var.region}.s3"
-  vpc_endpoint_type = "Gateway"
-  route_table_ids   = var.route_table_ids
+  count = var.enable_vpc_endpoints ? 1 : 0
 
-  tags = merge(
-    {
-      Name       = "s3-gateway-endpoint"
-      Tier       = "internal"
-      Network    = "private"
-      Compliance = "pci"
-    },
-    var.tags
-  )
+  vpc_id          = var.vpc_id
+  service_name    = "com.amazonaws.${var.region}.s3"
+  route_table_ids = var.route_table_ids
+
+  tags = merge(local.common_tags, {
+    Name = "s3-gateway-endpoint"
+    Type = "Gateway"
+  })
 }
 
-# SSM endpoint for k8s join command
+# DynamoDB Gateway VPC Endpoint (free and reduces NAT gateway costs)
+resource "aws_vpc_endpoint" "dynamodb" {
+  count = var.enable_vpc_endpoints ? 1 : 0
+
+  vpc_id          = var.vpc_id
+  service_name    = "com.amazonaws.${var.region}.dynamodb"
+  route_table_ids = var.route_table_ids
+
+  tags = merge(local.common_tags, {
+    Name = "dynamodb-gateway-endpoint"
+    Type = "Gateway"
+  })
+}
+
+# EC2 Interface VPC Endpoint (reduces NAT gateway costs for EC2 API calls)
+resource "aws_vpc_endpoint" "ec2" {
+  count = var.enable_vpc_endpoints ? 1 : 0
+
+  vpc_id              = var.vpc_id
+  service_name        = "com.amazonaws.${var.region}.ec2"
+  vpc_endpoint_type   = "Interface"
+  subnet_ids          = var.subnet_ids
+  security_group_ids  = [var.security_group_id]
+  private_dns_enabled = true
+
+  tags = merge(local.common_tags, {
+    Name = "ec2-interface-endpoint"
+    Type = "Interface"
+  })
+}
+
+# ECR API Interface VPC Endpoint (for container image management)
+resource "aws_vpc_endpoint" "ecr_api" {
+  count = var.enable_vpc_endpoints ? 1 : 0
+
+  vpc_id              = var.vpc_id
+  service_name        = "com.amazonaws.${var.region}.ecr.api"
+  vpc_endpoint_type   = "Interface"
+  subnet_ids          = var.subnet_ids
+  security_group_ids  = [var.security_group_id]
+  private_dns_enabled = true
+
+  tags = merge(local.common_tags, {
+    Name = "ecr-api-interface-endpoint"
+    Type = "Interface"
+  })
+}
+
+# ECR DKR Interface VPC Endpoint (for Docker registry)
+resource "aws_vpc_endpoint" "ecr_dkr" {
+  count = var.enable_vpc_endpoints ? 1 : 0
+
+  vpc_id              = var.vpc_id
+  service_name        = "com.amazonaws.${var.region}.ecr.dkr"
+  vpc_endpoint_type   = "Interface"
+  subnet_ids          = var.subnet_ids
+  security_group_ids  = [var.security_group_id]
+  private_dns_enabled = true
+
+  tags = merge(local.common_tags, {
+    Name = "ecr-dkr-interface-endpoint"
+    Type = "Interface"
+  })
+}
+
+# SSM Interface VPC Endpoint (for Systems Manager)
 resource "aws_vpc_endpoint" "ssm" {
   count = var.enable_vpc_endpoints ? 1 : 0
 
@@ -33,95 +108,49 @@ resource "aws_vpc_endpoint" "ssm" {
   security_group_ids  = [var.security_group_id]
   private_dns_enabled = true
 
-  tags = merge(
-    {
-      Name = "ssm-endpoint"
-    },
-    var.tags
-  )
+  tags = merge(local.common_tags, {
+    Name = "ssm-interface-endpoint"
+    Type = "Interface"
+  })
 }
 
-
-
-# ECR API endpoint
-resource "aws_vpc_endpoint" "ecr_api" {
-  count = var.enable_vpc_endpoints ? 0 : 0
+# SSM Messages Interface VPC Endpoint
+resource "aws_vpc_endpoint" "ssm_messages" {
+  count = var.enable_vpc_endpoints ? 1 : 0
 
   vpc_id              = var.vpc_id
-  service_name        = "com.amazonaws.${var.region}.ecr.api"
+  service_name        = "com.amazonaws.${var.region}.ssmmessages"
   vpc_endpoint_type   = "Interface"
   subnet_ids          = var.subnet_ids
   security_group_ids  = [var.security_group_id]
   private_dns_enabled = true
 
-  tags = merge(
-    {
-      Name = "ecr-api-endpoint"
-    },
-    var.tags
-  )
+  tags = merge(local.common_tags, {
+    Name = "ssm-messages-interface-endpoint"
+    Type = "Interface"
+  })
 }
 
-# ECR DKR endpoint
-resource "aws_vpc_endpoint" "ecr_dkr" {
-  count = var.enable_vpc_endpoints ? 0 : 0
+# EC2 Messages Interface VPC Endpoint
+resource "aws_vpc_endpoint" "ec2_messages" {
+  count = var.enable_vpc_endpoints ? 1 : 0
 
   vpc_id              = var.vpc_id
-  service_name        = "com.amazonaws.${var.region}.ecr.dkr"
+  service_name        = "com.amazonaws.${var.region}.ec2messages"
   vpc_endpoint_type   = "Interface"
   subnet_ids          = var.subnet_ids
   security_group_ids  = [var.security_group_id]
   private_dns_enabled = true
 
-  tags = merge(
-    {
-      Name = "ecr-dkr-endpoint"
-    },
-    var.tags
-  )
+  tags = merge(local.common_tags, {
+    Name = "ec2-messages-interface-endpoint"
+    Type = "Interface"
+  })
 }
 
-# STS endpoint for authentication
-resource "aws_vpc_endpoint" "sts" {
-  count = var.enable_vpc_endpoints ? 0 : 0
-
-  vpc_id              = var.vpc_id
-  service_name        = "com.amazonaws.${var.region}.sts"
-  vpc_endpoint_type   = "Interface"
-  subnet_ids          = var.subnet_ids
-  security_group_ids  = [var.security_group_id]
-  private_dns_enabled = true
-
-  tags = merge(
-    {
-      Name = "sts-endpoint"
-    },
-    var.tags
-  )
-}
-
-# EC2 endpoint for cluster operations
-resource "aws_vpc_endpoint" "ec2" {
-  count = var.enable_vpc_endpoints ? 0 : 0
-
-  vpc_id              = var.vpc_id
-  service_name        = "com.amazonaws.${var.region}.ec2"
-  vpc_endpoint_type   = "Interface"
-  subnet_ids          = var.subnet_ids
-  security_group_ids  = [var.security_group_id]
-  private_dns_enabled = true
-
-  tags = merge(
-    {
-      Name = "ec2-endpoint"
-    },
-    var.tags
-  )
-}
-
-# CloudWatch logs endpoint
+# CloudWatch Logs Interface VPC Endpoint
 resource "aws_vpc_endpoint" "logs" {
-  count = var.enable_vpc_endpoints ? 0 : 0
+  count = var.enable_vpc_endpoints ? 1 : 0
 
   vpc_id              = var.vpc_id
   service_name        = "com.amazonaws.${var.region}.logs"
@@ -130,30 +159,25 @@ resource "aws_vpc_endpoint" "logs" {
   security_group_ids  = [var.security_group_id]
   private_dns_enabled = true
 
-  tags = merge(
-    {
-      Name = "logs-endpoint"
-    },
-    var.tags
-  )
+  tags = merge(local.common_tags, {
+    Name = "logs-interface-endpoint"
+    Type = "Interface"
+  })
 }
 
-# Optional: ELB endpoint if using AWS load balancers
-resource "aws_vpc_endpoint" "elasticloadbalancing" {
-  count = var.enable_vpc_endpoints ? 0 : 0
+# CloudWatch Monitoring Interface VPC Endpoint
+resource "aws_vpc_endpoint" "monitoring" {
+  count = var.enable_vpc_endpoints ? 1 : 0
 
   vpc_id              = var.vpc_id
-  service_name        = "com.amazonaws.${var.region}.elasticloadbalancing"
+  service_name        = "com.amazonaws.${var.region}.monitoring"
   vpc_endpoint_type   = "Interface"
   subnet_ids          = var.subnet_ids
   security_group_ids  = [var.security_group_id]
   private_dns_enabled = true
 
-  tags = merge(
-    {
-      Name = "elb-endpoint"
-    },
-    var.tags
-  )
+  tags = merge(local.common_tags, {
+    Name = "monitoring-interface-endpoint"
+    Type = "Interface"
+  })
 }
-

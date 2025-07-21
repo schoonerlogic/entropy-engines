@@ -1,103 +1,217 @@
-# AWS Kubernetes Controller Module Variables
-variable "base_ami_id" {
-  description = "Used for all current cpu instances"
+# modules/controllers/variables.tf
+# Individual variables for Kubernetes control plane
+
+#===============================================================================
+# Core Configuration
+#===============================================================================
+
+variable "cluster_name" {
+  description = "Name of the Kubernetes cluster"
   type        = string
 }
 
 variable "environment" {
-  description = "Stage of developement"
+  description = "Environment name (dev, staging, prod, etc.)"
   type        = string
 }
 
-# Network Configuration Object
-variable "network_config" {
-  description = "Network configuration settings"
-  type = object({
-    vpc_cidr = optional(string, "10.0.0.0/16")
-    kubernetes_cidrs = optional(object({
-      pod_cidr     = string
-      service_cidr = string
-      }), {
-      pod_cidr     = "10.244.0.0/16"
-      service_cidr = "10.96.0.0/12"
-    })
-    availability_zones        = optional(list(string), null) # Will use data source if null
-    public_subnet_count       = optional(number, 2)
-    private_subnet_count      = optional(number, 3)
-    subnet_ids                = list(string)
-    iam_policy_version        = optional(string, "v1")
-    iam_instance_profile_name = optional(string, "ec2_role_name")
-  })
+#===============================================================================
+# Instance Configuration
+#===============================================================================
+
+variable "on_demand_count" {
+  description = "Number of on-demand controller instances"
+  type        = number
+  default     = 1
 }
 
-# Security Configuration Object
-variable "security_config" {
-  description = "Security configuration settings"
-  type = object({
-    ssh_allowed_cidrs     = optional(list(string), []) # Empty by default for security
-    bastion_allowed_cidrs = optional(list(string), []) # Empty by default for security
-    enable_bastion_host   = optional(bool, true)
-    bastion_instance_type = optional(string, "t3.micro")
-    bastion_host          = string
-    bastion_user          = optional(string, "ubuntu")
-    ssh_public_key_path   = optional(string, "~/.ssh/lwpub.pem")
-    ssh_private_key_path  = optional(string, "~/.ssh/lw.pem")
-    ssh_key_name          = string
-    security_group_ids    = list(string)
-  })
+variable "spot_count" {
+  description = "Number of spot controller instances"
+  type        = number
+  default     = 0
 }
 
-# Kubernetes Configuration Object
-variable "kubernetes_config" {
-  description = "Kubernetes integration settings"
-  type = object({
-    enable_kubernetes_tags = optional(bool, true)
-    cluster_name           = optional(string, null) # Will use project name if null
-    enable_nats_messaging  = optional(bool, true)
-
-    k8s_user               = string
-    k8s_major_minor_stream = string
-    k8s_full_patch_version = string
-    k8s_apt_package_suffix = string
-
-    nats_ports = optional(object({
-      client     = number
-      cluster    = number
-      leafnode   = number
-      monitoring = number
-      }), {
-      client     = 4222
-      cluster    = 6222
-      leafnode   = 7422
-      monitoring = 8222
-    })
-    enable_gpu_nodes = optional(bool, true)
-
-    ssm_join_command_path    = optional(string, null)
-    ssm_certificate_key_path = optional(string, null)
-  })
+variable "instance_types" {
+  description = "List of instance types for controllers"
+  type        = list(string)
 }
 
-# Instance Configuration Object
-variable "instance_config" {
-  description = "Instance configuration settings"
-  type = object({
-    ami_architecture         = optional(string, "arm64")
-    ubuntu_version           = optional(string, "22.04")
-    enable_volume_encryption = optional(bool, true)
-    kms_key_id               = optional(string, null) # Use AWS managed key if null
-    instance_type            = list(string)
-    on_demand_count          = optional(number, 0)
-    spot_count               = optional(number, 0)
-  })
+variable "ami_id" {
+  description = "AMI ID for controller instances"
+  type        = string
 }
 
-# Cost Optimization Object
-variable "cost_optimization" {
-  description = "Cost optimization settings"
-  type = object({
-    enable_spot_instances = optional(bool, true)
-    enable_vpc_endpoints  = optional(bool, true)
-  })
+#===============================================================================
+# Kubernetes Configuration
+#===============================================================================
+
+variable "k8s_user" {
+  description = "Kubernetes user for the cluster"
+  type        = string
 }
 
+variable "k8s_major_minor_stream" {
+  description = "Kubernetes version (major.minor) for apt repository"
+  type        = string
+}
+
+variable "k8s_full_patch_version" {
+  description = "Full Kubernetes patch version"
+  type        = string
+}
+
+variable "k8s_apt_package_suffix" {
+  description = "APT package suffix for Kubernetes"
+  type        = string
+}
+
+variable "pod_cidr_block" {
+  description = "CIDR block for Kubernetes pods"
+  type        = string
+}
+
+variable "service_cidr_block" {
+  description = "CIDR block for Kubernetes services"
+  type        = string
+}
+
+#===============================================================================
+# Networking
+#===============================================================================
+
+variable "subnet_ids" {
+  description = "List of subnet IDs for controller instances"
+  type        = list(string)
+}
+
+variable "security_group_ids" {
+  description = "List of security group IDs for controllers"
+  type        = list(string)
+}
+
+#===============================================================================
+# IAM
+#===============================================================================
+
+variable "control_plane_role_name" {
+  description = "Name of the IAM role for control plane instances"
+  type        = string
+}
+
+variable "iam_policy_version" {
+  description = "Version of the IAM policy"
+  type        = string
+}
+
+#===============================================================================
+# S3 Bootstrap Configuration
+#===============================================================================
+
+variable "bootstrap_bucket_name" {
+  description = "Name of the S3 bucket containing bootstrap scripts"
+  type        = string
+}
+
+#===============================================================================
+# SSH Configuration
+#===============================================================================
+
+variable "ssh_key_name" {
+  description = "Name of the SSH key pair"
+  type        = string
+}
+
+variable "ssh_public_key_path" {
+  description = "Path to SSH public key file"
+  type        = string
+}
+
+variable "ssh_private_key_path" {
+  description = "Path to SSH private key file"
+  type        = string
+}
+
+variable "bastion_host" {
+  description = "Bastion host for SSH connections"
+  type        = string
+}
+
+variable "bastion_user" {
+  description = "Username for bastion host"
+  type        = string
+}
+
+#===============================================================================
+# Block Device Mappings
+#===============================================================================
+
+variable "block_device_mappings" {
+  description = "Block device mappings for controller instances"
+  type = list(object({
+    device_name           = string
+    volume_size           = number
+    volume_type           = optional(string, "gp3")
+    delete_on_termination = optional(bool, true)
+    encrypted             = optional(bool, true)
+    iops                  = optional(number, null)
+    throughput            = optional(number, null)
+    kms_key_id            = optional(string, null)
+  }))
+  default = [
+    {
+      device_name           = "/dev/sda1"
+      volume_size           = 50
+      volume_type           = "gp3"
+      delete_on_termination = true
+      encrypted             = true
+    }
+  ]
+}
+
+#===============================================================================
+# Auto Scaling Group Configuration
+#===============================================================================
+
+variable "health_check_grace_period" {
+  description = "Health check grace period in seconds"
+  type        = number
+  default     = 300
+}
+
+variable "min_healthy_percentage" {
+  description = "Minimum healthy percentage during instance refresh"
+  type        = number
+  default     = 50
+}
+
+variable "capacity_timeout" {
+  description = "Timeout for capacity changes"
+  type        = string
+  default     = "15m"
+}
+
+#===============================================================================
+# Spot Configuration
+#===============================================================================
+
+variable "spot_allocation_strategy" {
+  description = "Spot allocation strategy"
+  type        = string
+  default     = "capacity-optimized"
+}
+
+variable "spot_instance_pools" {
+  description = "Number of spot instance pools"
+  type        = number
+  default     = 2
+}
+
+#===============================================================================
+# Tags
+#===============================================================================
+
+variable "additional_tags" {
+  description = "Additional tags to apply to resources"
+  type        = map(string)
+  default     = {}
+}

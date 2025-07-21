@@ -1,4 +1,10 @@
+# modules/network/variables.tf
 # Network Module Variables - Enhanced for Kubernetes
+# Updated to use individual variables instead of config objects
+
+#===============================================================================
+# Core Configuration Variables
+#===============================================================================
 
 variable "region" {
   description = "AWS region"
@@ -21,33 +27,10 @@ variable "project" {
   type        = string
 }
 
-variable "nat_type" {
-  description = "Type of NAT to use: gateway, instance, or none"
-  type        = string
-  validation {
-    condition     = contains(["gateway", "instance", "none"], var.nat_type)
-    error_message = "NAT type must be one of: gateway, instance, none."
-  }
-}
+#===============================================================================
+# Network Configuration Variables
+#===============================================================================
 
-variable "ssh_key_name" {
-  description = "SSH key name for instances"
-  type        = string
-}
-
-variable "bastion_type" {
-  description = "Instance type for bastion host"
-  type        = string
-  default     = "t3.micro"
-}
-
-variable "k8s_api_server_port" {
-  description = "Port the Kubernetes API server listens on"
-  type        = number
-  default     = 6443
-}
-
-# New cloud-agnostic variables
 variable "vpc_cidr" {
   description = "CIDR block for VPC"
   type        = string
@@ -84,6 +67,15 @@ variable "private_subnet_count" {
   default     = 3
 }
 
+#===============================================================================
+# Security Configuration Variables
+#===============================================================================
+
+variable "ssh_key_name" {
+  description = "SSH key name for instances"
+  type        = string
+}
+
 variable "ssh_allowed_cidrs" {
   description = "List of CIDR blocks allowed for SSH access"
   type        = list(string)
@@ -102,6 +94,37 @@ variable "enable_bastion_host" {
   default     = true
 }
 
+variable "bastion_type" {
+  description = "Instance type for bastion host"
+  type        = string
+  default     = "t3.micro"
+}
+
+#===============================================================================
+# NAT Configuration Variables
+#===============================================================================
+
+variable "nat_type" {
+  description = "Type of NAT to use: gateway, instance, or none"
+  type        = string
+  default     = "gateway"
+
+  validation {
+    condition     = contains(["gateway", "instance", "none"], var.nat_type)
+    error_message = "NAT type must be one of: gateway, instance, none."
+  }
+}
+
+variable "single_nat_gateway" {
+  description = "Use single NAT gateway for cost optimization"
+  type        = bool
+  default     = true
+}
+
+#===============================================================================
+# Kubernetes Configuration Variables
+#===============================================================================
+
 variable "enable_kubernetes_tags" {
   description = "Add Kubernetes-specific tags to subnets"
   type        = bool
@@ -112,6 +135,12 @@ variable "kubernetes_cluster_name" {
   description = "Name of the Kubernetes cluster for tagging"
   type        = string
   default     = null
+}
+
+variable "k8s_api_server_port" {
+  description = "Port the Kubernetes API server listens on"
+  type        = number
+  default     = 6443
 }
 
 variable "enable_nats_messaging" {
@@ -142,22 +171,26 @@ variable "enable_gpu_nodes" {
   default     = true
 }
 
+#===============================================================================
+# Instance Configuration Variables
+#===============================================================================
+
 variable "ubuntu_codename" {
-  description = "Canonical name"
+  description = "Ubuntu codename for AMI selection"
   type        = string
   default     = "jammy" # jammy=22.04, focal=20.04
-}
-
-variable "instance_ami_architecture" {
-  description = "Architecture for AMI selection (arm64 or x86_64)"
-  type        = string
-  default     = "arm64"
 }
 
 variable "ubuntu_version" {
   description = "Ubuntu version for AMI selection"
   type        = string
   default     = "22.04"
+}
+
+variable "instance_ami_architecture" {
+  description = "Architecture for AMI selection (arm64 or x86_64)"
+  type        = string
+  default     = "arm64"
 }
 
 variable "enable_volume_encryption" {
@@ -172,11 +205,9 @@ variable "kms_key_id" {
   default     = null
 }
 
-variable "single_nat_gateway" {
-  description = "Use single NAT gateway for cost optimization"
-  type        = bool
-  default     = true
-}
+#===============================================================================
+# VPC Endpoints Configuration Variables
+#===============================================================================
 
 variable "enable_vpc_endpoints" {
   description = "Enable VPC endpoints for cost optimization"
@@ -184,7 +215,10 @@ variable "enable_vpc_endpoints" {
   default     = true
 }
 
-# Legacy variables for backward compatibility
+#===============================================================================
+# Legacy Variables (for backward compatibility - can be removed later)
+#===============================================================================
+
 variable "tooling_sg_name" {
   description = "Legacy tooling security group name"
   type        = string
@@ -196,52 +230,3 @@ variable "bastion_allowed_ssh_cidrs" {
   type        = list(string)
   default     = []
 }
-
-# NEW: Accept organized config objects
-variable "network_config" {
-  description = "Network configuration object"
-  type = object({
-    vpc_cidr = optional(string, "10.0.0.0/16")
-    kubernetes_cidrs = optional(object({
-      pod_cidr     = string
-      service_cidr = string
-      }), {
-      pod_cidr     = "10.244.0.0/16"
-      service_cidr = "10.96.0.0/12"
-    })
-    availability_zones   = optional(list(string), null)
-    public_subnet_count  = optional(number, 2)
-    private_subnet_count = optional(number, 3)
-  })
-  default = {}
-}
-
-variable "security_config" {
-  description = "Security configuration object"
-  type = object({
-    ssh_allowed_cidrs     = optional(list(string), [])
-    bastion_allowed_cidrs = optional(list(string), [])
-    enable_bastion_host   = optional(bool, true)
-    bastion_instance_type = optional(string, "t3.micro")
-    ssh_key_name          = string
-  })
-  # Make it optional during migration
-  default = {
-    ssh_key_name          = ""
-    ssh_allowed_cidrs     = []
-    bastion_allowed_cidrs = []
-    enable_bastion_host   = true
-    bastion_instance_type = "t3.micro"
-  }
-}
-
-variable "nat_config" {
-  description = "NAT configuration object"
-  type = object({
-    nat_type           = optional(string, "gateway")
-    single_nat_gateway = optional(bool, true)
-  })
-  default = {}
-}
-
-

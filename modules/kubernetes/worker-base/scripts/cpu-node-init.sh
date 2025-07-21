@@ -6,7 +6,7 @@ set -euo pipefail # Strict mode
 # Example: $1 = target_user (e.g., graphscoper)
 #          $2 = k8s_version_mm (e.g., 1.30 - mostly informational for this script)
 #          $3 = ssm_join_command_path (e.g., /mycluster/worker-join-command)
-#          $4 = (Optional) cluster_dns_ip (if specifically needed and not inferred by kubeadm)
+#          $4 = cluster_dns_ip (if specifically needed and not inferred by kubeadm)
 
 if [ "$#" -lt 3 ]; then
     echo "FATAL: Missing required arguments."
@@ -39,12 +39,46 @@ log "Worker Node User Data Script (for Baked AMI) started."
 TARGET_USER="${1}"
 K8S_VERSION_MM="${2}" # Informational, as K8s components are baked in
 SSM_JOIN_COMMAND_PATH="${3}"
-# CLUSTER_DNS_IP="${4:-}" # Optional, assign if provided, otherwise empty
+CLUSTER_DNS_IP="${4:-}" # Optional, assign if provided, otherwise empty
 
 log "Running with Target User: ${TARGET_USER}"
 log "K8s Version (Baked in AMI): ${K8S_VERSION_MM}"
 log "Using SSM Join Command Path: ${SSM_JOIN_COMMAND_PATH}"
-# [ -n "${CLUSTER_DNS_IP}" ] && log "Using Cluster DNS IP: ${CLUSTER_DNS_IP}"
+[ -n "${CLUSTER_DNS_IP}" ] && log "Using Cluster DNS IP: ${CLUSTER_DNS_IP}"
+
+# --- Get Region and Setup CloudWatch Logging (Optional) ---
+# Fetch IMDSv2 Token for metadata access
+IMDSV2_TOKEN=$(curl -s -X PUT "http://169.254.169.254/latest/api/token" -H "X-aws-ec2-metadata-token-ttl-seconds: 300" 2>/dev/null || echo "")
+METADATA_HEADER_ARGS=""
+if [ -n "$IMDSV2_TOKEN" ]; then
+    METADATA_HEADER_ARGS="-H \"X-aws-ec2-metadata-token: $IMDSV2_TOKEN\""
+fi
+
+# Get region and instance info
+EC2_REGION=$(eval "curl -s $METADATA_HEADER_ARGS http://169.254.169.254/latest/dynamic/instance-identity/document" 2>/dev/null | jq -r .region 2>/dev/null || echo "us-east-1")
+INSTANCE_ID=$(eval "curl -s $METADATA_HEADER_ARGS http://169.254.169.254/latest/meta-data/instance-id" 2>/dev/null || hostname)
+
+log "Region: ${EC2_REGION}, Instance: ${INSTANCE_ID}"
+
+# Setup CloudWatch logging (optional - only if AWS CLI is available and working)
+setup_cloudwatch_logging() {
+    if command -v aws &> /dev/null; then
+        local log_group="/aws/ec2/kubernetes-bootstrap"
+        local log_stream="${INSTANCE_ID}-$(date +%s)"
+        
+        # Create log group (ignore if exists)
+        aws logs create-log-group --log-group-name "$log_group" --region "$EC2_REGION" 2>/dev/null || true
+        
+        # Create log stream (ignore if exists) 
+        aws logs create-log-stream --log-group-name "$log_group" --log-stream-name "$log_stream" --region "$EC2_REGION" 2>/dev/null || true
+        
+        if [ $? -eq 0 ]; then
+            log "CloudWatch logging setup for log group: $log_group"
+        fi
+    fi
+}
+
+setup_cloudwatch_logging
 
 # --- Configuration Variables (Path Definitions) ---
 # These MUST match the paths your applications and symlinks expect.
@@ -60,7 +94,6 @@ NVME_KUBELET_DIR="${NVME_MOUNT_POINT}/lib/kubelet"
 
 DEFAULT_K8S_POD_LOGS_DIR="/var/log/pods"
 NVME_K8S_POD_LOGS_DIR="${NVME_MOUNT_POINT}/log/pods"
-# /var/log/containers is typically a symlink created by kubelet to /var/log/pods
 
 # For TARGET_USER (e.g., graphscoper)
 SHARED_MODELS_BASE_ON_NVME="${NVME_MOUNT_POINT}/shared_data/${TARGET_USER}"
@@ -227,9 +260,6 @@ log "Creating symlinks for Kubernetes core directories..."
 create_symlink_if_not_exists "${NVME_CONTAINERD_DIR}" "${DEFAULT_CONTAINERD_DIR}" "containerd"
 create_symlink_if_not_exists "${NVME_KUBELET_DIR}" "${DEFAULT_KUBELET_DIR}" "kubelet"
 create_symlink_if_not_exists "${NVME_K8S_POD_LOGS_DIR}" "${DEFAULT_K8S_POD_LOGS_DIR}" "pod-logs"
-# Optional: ensure /var/log/containers symlinks to /var/log/pods (kubelet might do this)
-# create_symlink_if_not_exists "${DEFAULT_K8S_POD_LOGS_DIR}" "/var/log/containers" "containers-log-compat"
-
 
 # --- 5. Restart Services ---
 log "Restarting containerd..."
@@ -264,36 +294,48 @@ else
     warn "Default user (${DEFAULT_AMI_USER}) authorized_keys not found at ${DEFAULT_USER_AUTHORIZED_KEYS_PATH}. Cannot copy for ${TARGET_USER}."
 fi
 
-# --- 7. Fetch and Execute kubeadm join ---
+# --- 7. Fetch and Execute kubeadm join with Retry Logic ---
 log "Fetching kubeadm join command from SSM: ${SSM_JOIN_COMMAND_PATH}"
-
-# Fetch IMDSv2 Token (if AWS CLI needs it for SSM and not configured via instance profile for CLI already)
-IMDSV2_TOKEN=$(curl -s -X PUT "http://169.254.169.254/latest/api/token" -H "X-aws-ec2-metadata-token-ttl-seconds: 300")
-METADATA_HEADER_ARGS="" # Store curl header arguments
-if [ -z "$IMDSV2_TOKEN" ]; then
-    warn "Failed to get IMDSv2 token for metadata service. AWS CLI might rely on instance profile or allow no token."
-else
-    METADATA_HEADER_ARGS="-H \"X-aws-ec2-metadata-token: $IMDSV2_TOKEN\""
-fi
-
-# Correctly use METADATA_HEADER_ARGS with eval to handle quotes if token exists
-EC2_REGION=$(eval "curl -s $METADATA_HEADER_ARGS http://169.254.169.254/latest/dynamic/instance-identity/document" | jq -r .region || echo "us-east-1")
 
 # AWS CLI should be in AMI (baked in)
 if ! command -v aws &> /dev/null; then
     error "AWS CLI not found. This should have been in the baked AMI."
 fi
 
-log "Fetching join command from SSM Path: ${SSM_JOIN_COMMAND_PATH} in region ${EC2_REGION}"
-JOIN_COMMAND=$(aws ssm get-parameter --name "${SSM_JOIN_COMMAND_PATH}" --with-decryption --query Parameter.Value --output text --region "${EC2_REGION}")
+# Improved SSM parameter fetch with retry logic
+fetch_ssm_parameter() {
+    local param_path="$1"
+    local max_attempts=5
+    local attempt=1
+    
+    while [ $attempt -le $max_attempts ]; do
+        log "Attempt $attempt/$max_attempts: Fetching SSM parameter: $param_path"
+        
+        # Try to fetch the parameter
+        if JOIN_COMMAND=$(aws ssm get-parameter --name "$param_path" --with-decryption --query Parameter.Value --output text --region "$EC2_REGION" 2>/dev/null); then
+            if [ -n "$JOIN_COMMAND" ] && [ "$JOIN_COMMAND" != "None" ]; then
+                log "Successfully fetched join command from SSM"
+                return 0
+            fi
+        fi
+        
+        warn "Failed to fetch SSM parameter, attempt $attempt/$max_attempts"
+        if [ $attempt -lt $max_attempts ]; then
+            local sleep_time=$((attempt * 10))  # Exponential backoff: 10s, 20s, 30s, 40s
+            log "Waiting ${sleep_time} seconds before retry..."
+            sleep $sleep_time
+        fi
+        ((attempt++))
+    done
+    
+    error "Failed to fetch SSM parameter after $max_attempts attempts"
+}
 
-if [ -z "$JOIN_COMMAND" ]; then
-    error "Failed to retrieve join command from SSM: ${SSM_JOIN_COMMAND_PATH}"
-fi
+# Fetch the join command with retry logic
+fetch_ssm_parameter "${SSM_JOIN_COMMAND_PATH}"
 
 log "Executing kubeadm join command..."
 # Add --v=5 for more verbose output from kubeadm if debugging is needed
-# eval "${JOIN_COMMAND} --v=5"
 eval "${JOIN_COMMAND}"
 JOIN_EXIT_CODE=$?
 
@@ -303,13 +345,89 @@ fi
 
 log "kubeadm join command completed successfully."
 
-# Verify Kubelet status
+# --- 8. Verify Services and Node Readiness ---
+log "Verifying kubelet service status..."
 sleep 10 # Give kubelet a moment to fully start and report status
+
+# Check kubelet status
 if systemctl is-active --quiet kubelet; then
     log "Kubelet service is active after join."
 else
     warn "Kubelet service is NOT active after join. Check 'journalctl -u kubelet' for errors."
+    # Still continue to check node readiness
 fi
 
-log "Worker node User Data script finished successfully."
+# Wait for node to become ready in the cluster
+log "Waiting for node to be ready in Kubernetes cluster..."
+wait_for_node_ready() {
+    local max_attempts=30
+    local attempt=1
+    local hostname=$(hostname)
+    
+    # Wait for kubelet config to be available
+    while [ $attempt -le 5 ]; do
+        if [ -f "/etc/kubernetes/kubelet.conf" ]; then
+            log "Kubelet config found"
+            break
+        fi
+        log "Waiting for kubelet config... (attempt $attempt/5)"
+        sleep 10
+        ((attempt++))
+    done
+    
+    if [ ! -f "/etc/kubernetes/kubelet.conf" ]; then
+        warn "Kubelet config not found after 50 seconds. Node readiness check may fail."
+        return 1
+    fi
+    
+    # Check node readiness
+    attempt=1
+    while [ $attempt -le $max_attempts ]; do
+        log "Checking node readiness... (attempt $attempt/$max_attempts)"
+        
+        if kubectl --kubeconfig=/etc/kubernetes/kubelet.conf get node "$hostname" --no-headers 2>/dev/null | grep -q "Ready"; then
+            log "✅ Node '$hostname' is Ready in Kubernetes cluster!"
+            return 0
+        fi
+        
+        # Show current node status for debugging
+        if [ $((attempt % 5)) -eq 0 ]; then  # Every 5th attempt
+            log "Current node status:"
+            kubectl --kubeconfig=/etc/kubernetes/kubelet.conf get node "$hostname" 2>/dev/null || log "Cannot get node status yet"
+        fi
+        
+        sleep 20  # Check every 20 seconds
+        ((attempt++))
+    done
+    
+    warn "Node did not become Ready within $((max_attempts * 20)) seconds"
+    log "Final node status:"
+    kubectl --kubeconfig=/etc/kubernetes/kubelet.conf get node "$hostname" 2>/dev/null || log "Cannot get node status"
+    return 1
+}
+
+# Call the function but don't fail the script if it times out
+if wait_for_node_ready; then
+    log "Node readiness verification completed successfully."
+else
+    warn "Node readiness verification timed out, but continuing. Check cluster status manually."
+fi
+
+# --- 9. Final Status Report ---
+log "=== Bootstrap Summary ==="
+log "✅ NVMe storage: ${NVME_DEVICE} mounted at ${NVME_MOUNT_POINT}"
+log "✅ Kubernetes directories symlinked to NVMe"
+log "✅ Services restarted: containerd, kubelet"
+log "✅ Node joined to cluster: ${SSM_JOIN_COMMAND_PATH}"
+log "✅ Target user: ${TARGET_USER}"
+
+# Show final disk usage
+log "Final NVMe storage usage:"
+df -hT "${NVME_MOUNT_POINT}"
+
+# Show kubelet status
+log "Final kubelet status:"
+systemctl --no-pager status kubelet || true
+
+log "🎉 Worker node User Data script finished successfully!"
 exit 0

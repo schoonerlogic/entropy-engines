@@ -1,5 +1,6 @@
+# modules/network/main.tf
 # Enhanced AWS VPC Module for Cloud-Agnostic Kubernetes
-# Security-hardened with cloud-agnostic variables
+# Updated to use individual variables instead of config objects
 
 data "aws_availability_zones" "available" {
   state = "available"
@@ -9,8 +10,8 @@ locals {
   # Use provided availability zones or discover available ones
   azs = var.availability_zones != null ? var.availability_zones : slice(data.aws_availability_zones.available.names, 0, max(var.public_subnet_count, var.private_subnet_count))
 
-  # Use provided CIDRs or defaults
-  vpc_cidr_block     = local.vpc_cidr
+  # Use individual variables for network configuration
+  vpc_cidr_block     = var.vpc_cidr
   pod_cidr_block     = var.kubernetes_cidrs.pod_cidr
   service_cidr_block = var.kubernetes_cidrs.service_cidr
   cluster_dns_ip     = cidrhost(var.kubernetes_cidrs.service_cidr, 10)
@@ -53,26 +54,6 @@ locals {
   )
 }
 
-# modules/network/main.tf - Use organized configs with fallbacks
-locals {
-  # Use organized config values with fallbacks to individual variables
-  vpc_cidr = var.network_config.vpc_cidr
-
-  # For SSH key, prefer organized config but fall back to individual variable
-  ssh_key_name = var.security_config.ssh_key_name != "" ? var.security_config.ssh_key_name : var.ssh_key_name
-
-  # For NAT type, prefer organized config but fall back to individual variable
-  nat_type = var.nat_config.nat_type
-
-  # For bastion, use organized config
-  enable_bastion        = var.security_config.enable_bastion_host
-  bastion_instance_type = var.security_config.bastion_instance_type
-
-  # Availability zones - use from config or data source
-  availability_zones = var.network_config.availability_zones != null ? var.network_config.availability_zones : data.aws_availability_zones.available.names
-}
-
-
 # VPC Configuration
 module "vpc" {
   source  = "terraform-aws-modules/vpc/aws"
@@ -103,12 +84,11 @@ module "vpc" {
 
   tags = local.common_tags
 
-
-  # enable vpc FLOW LOGS FOR SECURITY MONITORING
-  # ENABLE_FLOW_LOG                      = TRUE
-  # CREATE_FLOW_LOG_CLOUDWATCH_IAM_ROLE  = TRUE
-  # CREATE_FLOW_LOG_CLOUDWATCH_LOG_GROUP = TRUE
-  # flow_log_max_aggregation_interval    = 60
+  # Enable VPC Flow Logs for security monitoring
+  enable_flow_log                      = true
+  create_flow_log_cloudwatch_iam_role  = true
+  create_flow_log_cloudwatch_log_group = true
+  flow_log_max_aggregation_interval    = 60
 }
 
 # Data sources for AMI and AWS services
@@ -157,14 +137,6 @@ resource "aws_nat_gateway" "nat_gateway" {
   })
 }
 
-# Route for private subnets
-# resource "aws_route" "private_nat" {
-#   count                  = var.nat_type == "gateway" ? length(module.vpc.private_route_table_ids) : 0
-#   route_table_id         = module.vpc.private_route_table_ids[count.index]
-#   destination_cidr_block = "0.0.0.0/0"
-#   nat_gateway_id         = aws_nat_gateway.nat_gateway[0].id
-# }
-
 # Bastion Host (conditionally created)
 resource "aws_instance" "bastion" {
   count = var.enable_bastion_host ? 1 : 0
@@ -189,34 +161,23 @@ resource "aws_instance" "bastion" {
     Role = "bastion"
   })
 }
-# Your existing resources, but using the new locals
-resource "aws_vpc" "main" {
-  cidr_block           = local.vpc_cidr
-  enable_dns_hostnames = true
-  enable_dns_support   = true
-
-  tags = merge(local.common_tags, {
-    Name = "${var.project}-${var.vpc_name}"
-  })
-}
-
 
 ###########################################
 # Security Groups
 ###########################################
-
 
 resource "aws_security_group" "control_plane" {
   name        = "${local.cluster_name}-control-plane"
   description = "Security group for Kubernetes control plane nodes"
   vpc_id      = module.vpc.vpc_id
 
-  # Kubernetes API
+  # SSH access
   ingress {
     from_port   = 22
     to_port     = 22
     protocol    = "tcp"
-    cidr_blocks = var.ssh_allowed_cidrs
+    cidr_blocks = local.effective_ssh_cidrs
+    description = "SSH access"
   }
 
   # Kubernetes API Server
@@ -225,59 +186,89 @@ resource "aws_security_group" "control_plane" {
     to_port     = 6443
     protocol    = "tcp"
     cidr_blocks = [var.vpc_cidr]
+    description = "Kubernetes API Server"
   }
 
   # etcd
   ingress {
-    from_port = 2379
-    to_port   = 2380
-    protocol  = "tcp"
-    self      = true
+    from_port   = 2379
+    to_port     = 2380
+    protocol    = "tcp"
+    self        = true
+    description = "etcd server client API"
   }
 
   # Kubelet API
   ingress {
-    from_port = 10250
-    to_port   = 10250
-    protocol  = "tcp"
-    self      = true
+    from_port   = 10250
+    to_port     = 10250
+    protocol    = "tcp"
+    self        = true
+    description = "Kubelet API"
   }
 
-  # NATS messaging
-  ingress {
-    from_port   = 4222
-    to_port     = 4222
-    protocol    = "tcp"
-    cidr_blocks = [var.vpc_cidr]
+  # NATS messaging (if enabled)
+  dynamic "ingress" {
+    for_each = var.enable_nats_messaging ? [1] : []
+    content {
+      from_port   = var.nats_ports.client
+      to_port     = var.nats_ports.client
+      protocol    = "tcp"
+      cidr_blocks = [var.vpc_cidr]
+      description = "NATS client port"
+    }
   }
 
-  ingress {
-    from_port   = 7422
-    to_port     = 7422
-    protocol    = "tcp"
-    cidr_blocks = [var.vpc_cidr]
+  dynamic "ingress" {
+    for_each = var.enable_nats_messaging ? [1] : []
+    content {
+      from_port   = var.nats_ports.leafnode
+      to_port     = var.nats_ports.leafnode
+      protocol    = "tcp"
+      cidr_blocks = [var.vpc_cidr]
+      description = "NATS leafnode port"
+    }
   }
+
+  egress {
+    from_port   = 0
+    to_port     = 0
+    protocol    = "-1"
+    cidr_blocks = ["0.0.0.0/0"]
+    description = "All outbound traffic"
+  }
+
+  tags = merge(local.common_tags, {
+    Name = "${local.cluster_name}-control-plane"
+  })
 }
-
 
 resource "aws_security_group" "worker_nodes" {
   name        = "${local.cluster_name}-worker-nodes"
   description = "Security group for Kubernetes worker nodes"
   vpc_id      = module.vpc.vpc_id
 
-  # NATS messaging
-  ingress {
-    from_port   = 4222
-    to_port     = 4222
-    protocol    = "tcp"
-    cidr_blocks = [var.vpc_cidr]
+  # NATS messaging (if enabled)
+  dynamic "ingress" {
+    for_each = var.enable_nats_messaging ? [1] : []
+    content {
+      from_port   = var.nats_ports.client
+      to_port     = var.nats_ports.client
+      protocol    = "tcp"
+      cidr_blocks = [var.vpc_cidr]
+      description = "NATS client port"
+    }
   }
 
-  ingress {
-    from_port   = 7422
-    to_port     = 7422
-    protocol    = "tcp"
-    cidr_blocks = [var.vpc_cidr]
+  dynamic "ingress" {
+    for_each = var.enable_nats_messaging ? [1] : []
+    content {
+      from_port   = var.nats_ports.leafnode
+      to_port     = var.nats_ports.leafnode
+      protocol    = "tcp"
+      cidr_blocks = [var.vpc_cidr]
+      description = "NATS leafnode port"
+    }
   }
 
   # NodePort services
@@ -286,6 +277,7 @@ resource "aws_security_group" "worker_nodes" {
     to_port     = 32767
     protocol    = "tcp"
     cidr_blocks = [var.vpc_cidr]
+    description = "NodePort services"
   }
 
   # SSH
@@ -294,6 +286,16 @@ resource "aws_security_group" "worker_nodes" {
     to_port     = 22
     protocol    = "tcp"
     cidr_blocks = [var.vpc_cidr]
+    description = "SSH access from VPC"
+  }
+
+  # Kubelet API
+  ingress {
+    from_port   = 10250
+    to_port     = 10250
+    protocol    = "tcp"
+    cidr_blocks = [var.vpc_cidr]
+    description = "Kubelet API"
   }
 
   egress {
@@ -301,14 +303,14 @@ resource "aws_security_group" "worker_nodes" {
     to_port     = 0
     protocol    = "-1"
     cidr_blocks = ["0.0.0.0/0"]
+    description = "All outbound traffic"
   }
 
   tags = merge(local.common_tags, {
-    Name                                        = "${local.cluster_name}-worker-nodes"
+    Name                                          = "${local.cluster_name}-worker-nodes"
     "kubernetes.io/cluster/${local.cluster_name}" = "owned"
   })
 }
-
 
 # GPU Nodes Security Group (if enabled)
 resource "aws_security_group" "k8s_gpu_nodes" {
@@ -316,6 +318,23 @@ resource "aws_security_group" "k8s_gpu_nodes" {
   name        = local.gpu_nodes_sg_name
   description = "Security group for GPU worker nodes"
   vpc_id      = module.vpc.vpc_id
+
+  # Inherit all rules from worker nodes
+  ingress {
+    from_port       = 0
+    to_port         = 0
+    protocol        = "-1"
+    security_groups = [aws_security_group.worker_nodes.id]
+    description     = "All traffic from worker nodes"
+  }
+
+  egress {
+    from_port   = 0
+    to_port     = 0
+    protocol    = "-1"
+    cidr_blocks = ["0.0.0.0/0"]
+    description = "All outbound traffic"
+  }
 
   tags = merge(local.common_tags, {
     Name = local.gpu_nodes_sg_name
@@ -358,8 +377,6 @@ resource "aws_security_group_rule" "nats_cluster" {
   description       = "NATS cluster routing"
 }
 
-
-
 resource "aws_security_group" "bastion_host" {
   name        = "${local.cluster_name}-bastion"
   description = "Security group for bastion host"
@@ -369,7 +386,8 @@ resource "aws_security_group" "bastion_host" {
     from_port   = 22
     to_port     = 22
     protocol    = "tcp"
-    cidr_blocks = var.bastion_allowed_cidrs
+    cidr_blocks = local.effective_bastion_cidrs
+    description = "SSH access to bastion"
   }
 
   egress {
@@ -377,14 +395,14 @@ resource "aws_security_group" "bastion_host" {
     to_port     = 0
     protocol    = "-1"
     cidr_blocks = ["0.0.0.0/0"]
+    description = "All outbound traffic"
   }
 
   tags = merge(local.common_tags, {
-    Name                                        = "${local.cluster_name}-bastion"
+    Name                                          = "${local.cluster_name}-bastion"
     "kubernetes.io/cluster/${local.cluster_name}" = "owned"
   })
 }
-
 
 # VPC Endpoints Security Group
 resource "aws_security_group" "vpc_endpoints" {
@@ -512,4 +530,3 @@ resource "aws_vpc_endpoint" "s3_gateway" {
     Name = "${var.project}-${var.environment}-s3-gateway"
   })
 }
-
