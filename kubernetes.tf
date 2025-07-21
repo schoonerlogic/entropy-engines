@@ -289,7 +289,7 @@ module "cpu_workers" {
   # Kubernetes config (from original variables)
   k8s_user               = var.kubernetes_config.k8s_user
   k8s_major_minor_stream = var.kubernetes_config.k8s_major_minor_stream
-  cluster_dns_ip         = var.network_config.cluster_dns_ip
+  cluster_dns_ip         = var.network_config.kubernetes_cidrs.pod_cidr
 
   # Networking
   subnet_ids         = var.network_config.subnet_ids
