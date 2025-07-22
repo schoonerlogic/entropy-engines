@@ -133,15 +133,7 @@ variable "ssh_private_key_path" {
   type        = string
 }
 
-variable "bastion_host" {
-  description = "Bastion host for SSH connections"
-  type        = string
-}
 
-variable "bastion_user" {
-  description = "Username for bastion host"
-  type        = string
-}
 
 #===============================================================================
 # Block Device Mappings

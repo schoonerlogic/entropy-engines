@@ -8,226 +8,129 @@ set -euo pipefail
 S3_SCRIPT_URI="${s3_script_uri}"
 BOOTSTRAP_BUCKET_NAME="${bootstrap_bucket_name}"
 CLUSTER_NAME="${cluster_name}"
-
-# Kubernetes configuration
 K8S_USER="${k8s_user}"
 K8S_MAJOR_MINOR_STREAM="${k8s_major_minor_stream}"
 K8S_FULL_PATCH_VERSION="${k8s_full_patch_version}"
 K8S_APT_PACKAGE_SUFFIX="${k8s_apt_package_suffix}"
 SSH_PUBLIC_KEY="${ssh_public_key}"
-
-# Network configuration
 POD_CIDR_BLOCK="${pod_cidr_block}"
 SERVICE_CIDR_BLOCK="${service_cidr_block}"
-
-# SSM paths
 SSM_JOIN_COMMAND_PATH="${ssm_join_command_path}"
 SSM_CERTIFICATE_KEY_PATH="${ssm_certificate_key_path}"
 
 # Logging setup
 LOADER_LOG_FILE="/var/log/control-plane-user-data-loader.log"
 touch $${LOADER_LOG_FILE} && chmod 644 $${LOADER_LOG_FILE}
-
-# Redirect output to both console and log file
 exec > >(tee -a $${LOADER_LOG_FILE}) 2>&1
 
 echo "=== Control Plane User Data Loader Started at $(date) ==="
-echo "Loader Log: $${LOADER_LOG_FILE}"
-echo "Main Script S3 URI: $${S3_SCRIPT_URI}"
-echo "Cluster: $${CLUSTER_NAME}"
-echo "K8s User: $${K8S_USER}"
-echo "K8s Version: $${K8S_MAJOR_MINOR_STREAM}"
-echo "Pod CIDR: $${POD_CIDR_BLOCK}"
-echo "Service CIDR: $${SERVICE_CIDR_BLOCK}"
 
 #===============================================================================
 # Ensure Required Tools Are Available
 #===============================================================================
-
-# Ensure AWS CLI is available
-if ! command -v aws &> /dev/null; then
-    echo "AWS CLI not found. Installing..."
+install_pkg() {
     if command -v apt-get &> /dev/null; then
-        apt-get update -y || echo "Warning: apt-get update failed"
-        apt-get install -y --no-install-recommends awscli || {
-            echo "FATAL: Failed to install awscli via apt-get"
-            exit 1
-        }
+        apt-get update -y && apt-get install -y --no-install-recommends "$1"
     elif command -v yum &> /dev/null; then
-        yum install -y aws-cli || {
-            echo "FATAL: Failed to install aws-cli via yum"
-            exit 1
-        }
+        yum install -y "$1"
     else
-        echo "FATAL: Cannot find package manager to install AWS CLI"
+        echo "FATAL: Cannot find package manager to install $1"
         exit 1
     fi
-    echo "AWS CLI installed successfully"
-else
-    echo "AWS CLI found: $(command -v aws)"
-fi
+}
 
-# Ensure jq is available
-if ! command -v jq &> /dev/null; then
-    echo "jq not found. Installing..."
-    if command -v apt-get &> /dev/null; then
-        apt-get install -y --no-install-recommends jq || {
-            echo "FATAL: Failed to install jq via apt-get"
-            exit 1
-        }
-    elif command -v yum &> /dev/null; then
-        yum install -y jq || {
-            echo "FATAL: Failed to install jq via yum"
-            exit 1
-        }
+for pkg in awscli jq; do
+    if ! command -v $pkg &> /dev/null; then
+        echo "$pkg not found. Installing..."
+        install_pkg $pkg || { echo "FATAL: Failed to install $pkg"; exit 1; }
+        echo "$pkg installed successfully."
     else
-        echo "FATAL: Cannot find package manager to install jq"
-        exit 1
+        echo "$pkg found: $(command -v $pkg)"
     fi
-    echo "jq installed successfully"
-else
-    echo "jq found: $(command -v jq)"
-fi
+done
 
 #===============================================================================
 # Get Instance Metadata
 #===============================================================================
-
 echo "Getting instance metadata..."
-TOKEN=$(curl -s -X PUT "http://169.254.169.254/latest/api/token" -H "X-aws-ec2-metadata-token-ttl-seconds: 60") || {
-    echo "Warning: Failed to get IMDSv2 token"
-    TOKEN=""
-}
-
+TOKEN=$(curl -s -X PUT "http://169.254.169.254/latest/api/token" -H "X-aws-ec2-metadata-token-ttl-seconds: 60" || true)
+HEADERS=""
 if [ -n "$TOKEN" ]; then
-    EC2_REGION=$(curl -s -H "X-aws-ec2-metadata-token: $TOKEN" http://169.254.169.254/latest/dynamic/instance-identity/document | jq -r .region || echo "us-east-1")
-    INSTANCE_ID=$(curl -s -H "X-aws-ec2-metadata-token: $TOKEN" http://169.254.169.254/latest/meta-data/instance-id || echo "unknown")
-    PRIVATE_IP=$(curl -s -H "X-aws-ec2-metadata-token: $TOKEN" http://169.254.169.254/latest/meta-data/local-ipv4 || echo "unknown")
-else
-    # Fallback without token (IMDSv1)
-    EC2_REGION=$(curl -s http://169.254.169.254/latest/dynamic/instance-identity/document | jq -r .region || echo "us-east-1")
-    INSTANCE_ID=$(curl -s http://169.254.169.254/latest/meta-data/instance-id || echo "unknown")
-    PRIVATE_IP=$(curl -s http://169.254.169.254/latest/meta-data/local-ipv4 || echo "unknown")
+    HEADERS="-H \"X-aws-ec2-metadata-token: $TOKEN\""
 fi
-
+EC2_REGION=$(eval "curl -s $HEADERS http://169.254.169.254/latest/dynamic/instance-identity/document | jq -r .region")
+INSTANCE_ID=$(eval "curl -s $HEADERS http://169.254.169.254/latest/meta-data/instance-id")
+PRIVATE_IP=$(eval "curl -s $HEADERS http://169.254.169.254/latest/meta-data/local-ipv4")
 echo "Region: $${EC2_REGION}, Instance: $${INSTANCE_ID}, Private IP: $${PRIVATE_IP}"
 
 #===============================================================================
-# Determine Controller Role (Primary vs Secondary)
+# Determine Controller Role (Primary vs Secondary) with S3 Lock
 #===============================================================================
+echo "Determining controller role using S3 lock..."
+S3_LOCK_URI="s3://$${BOOTSTRAP_BUCKET_NAME}/$${CLUSTER_NAME}/control-plane.lock"
+CONTROLLER_ROLE="secondary"
+PRIMARY_CONTROLLER_IP=""
 
-echo "Determining controller role..."
-
-# Check if this is the first controller by looking for existing controllers
-EXISTING_CONTROLLERS=$(aws ec2 describe-instances \
-    --region "$${EC2_REGION}" \
-    --filters "Name=tag:ClusterControllerType,Values=$${CLUSTER_NAME}-controller" \
-              "Name=instance-state-name,Values=running" \
-    --query 'Reservations[].Instances[].InstanceId' \
-    --output text 2>/dev/null || echo "")
-
-if [ -z "$${EXISTING_CONTROLLERS}" ] || [ "$${EXISTING_CONTROLLERS}" = "None" ]; then
+# Try to acquire the lock. If the file exists, another node is primary.
+# The `--if-none-match` ensures this is an atomic operation.
+if aws s3 cp /dev/null "$${S3_LOCK_URI}" --if-none-match '*' --region "$${EC2_REGION}" 2>/dev/null; then
     CONTROLLER_ROLE="primary"
-    echo "This is the PRIMARY controller (first controller in cluster)"
+    echo "Successfully acquired S3 lock. This node is the PRIMARY controller."
+    # As primary, write our IP to the lock file for secondaries to find.
+    echo "$${PRIVATE_IP}" > /tmp/primary_ip.txt
+    aws s3 cp /tmp/primary_ip.txt "$${S3_LOCK_URI}" --region "$${EC2_REGION}"
 else
-    CONTROLLER_ROLE="secondary"
-    echo "This is a SECONDARY controller (joining existing cluster)"
-    
-    # Get primary controller IP for joining
-    PRIMARY_CONTROLLER_IP=$(aws ec2 describe-instances \
-        --region "$${EC2_REGION}" \
-        --filters "Name=tag:ClusterControllerType,Values=$${CLUSTER_NAME}-controller" \
-                  "Name=instance-state-name,Values=running" \
-        --query 'Reservations[0].Instances[0].PrivateIpAddress' \
-        --output text 2>/dev/null || echo "")
-    
-    echo "Primary controller IP: $${PRIMARY_CONTROLLER_IP}"
+    echo "Could not acquire S3 lock. This node is a SECONDARY controller."
+    echo "Waiting for primary controller IP to appear in lock file..."
+    for i in {1..20}; do
+        PRIMARY_CONTROLLER_IP=$(aws s3 cp "$${S3_LOCK_URI}" - --region "$${EC2_REGION}" 2>/dev/null | tr -d '[:space:]')
+        if [[ -n "$${PRIMARY_CONTROLLER_IP}" ]]; then
+            echo "Found primary controller IP: $${PRIMARY_CONTROLLER_IP}"
+            break
+        fi
+        echo "Attempt $i/20: Lock file exists but is empty. Waiting..."
+        sleep 15
+    done
+    if [[ -z "$${PRIMARY_CONTROLLER_IP}" ]]; then
+        echo "FATAL: Timed out waiting for primary controller IP in S3 lock file."
+        exit 1
+    fi
 fi
 
 #===============================================================================
-# Download Main Bootstrap Script from S3
+# Download and Execute Main Bootstrap Script
 #===============================================================================
-
 LOCAL_SCRIPT_PATH="/opt/control-plane-bootstrap-main.sh"
 echo "Downloading main control plane script to $${LOCAL_SCRIPT_PATH}..."
-
-# Download the main bootstrap script
 aws s3 cp "$${S3_SCRIPT_URI}" "$${LOCAL_SCRIPT_PATH}" --region "$${EC2_REGION}" || {
-    echo "FATAL: Failed to download script from S3 URI: $${S3_SCRIPT_URI}"
-    echo "Check:"
-    echo "  1. Instance IAM role has s3:GetObject permission for the bucket/object"
-    echo "  2. S3 bucket and object exist"
-    echo "  3. Network connectivity to S3"
-    exit 1
+    echo "FATAL: Failed to download script from S3 URI: $${S3_SCRIPT_URI}"; exit 1;
 }
-
-echo "Main control plane script downloaded successfully"
-chmod +x "$${LOCAL_SCRIPT_PATH}" || {
-    echo "FATAL: Failed to make script executable: $${LOCAL_SCRIPT_PATH}"
-    exit 1
-}
-
-#===============================================================================
-# Execute Main Bootstrap Script
-#===============================================================================
+chmod +x "$${LOCAL_SCRIPT_PATH}"
 
 echo "=== Executing main control plane bootstrap script ==="
+bash "$${LOCAL_SCRIPT_PATH}" \
+    --cluster-name "$${CLUSTER_NAME}" \
+    --k8s-user "$${K8S_USER}" \
+    --k8s-version "$${K8S_MAJOR_MINOR_STREAM}" \
+    --k8s-full-version "$${K8S_FULL_PATCH_VERSION}" \
+    --k8s-package-suffix "$${K8S_APT_PACKAGE_SUFFIX}" \
+    --pod-cidr "$${POD_CIDR_BLOCK}" \
+    --service-cidr "$${SERVICE_CIDR_BLOCK}" \
+    --controller-role "$${CONTROLLER_ROLE}" \
+    --instance-id "$${INSTANCE_ID}" \
+    --private-ip "$${PRIVATE_IP}" \
+    --region "$${EC2_REGION}" \
+    --ssm-join-path "$${SSM_JOIN_COMMAND_PATH}" \
+    --ssm-cert-key-path "$${SSM_CERTIFICATE_KEY_PATH}" \
+    --primary-controller-ip "$${PRIMARY_CONTROLLER_IP}"
 
-# Create arguments for the main script
-SCRIPT_ARGS=""
-SCRIPT_ARGS="$${SCRIPT_ARGS} --cluster-name '$${CLUSTER_NAME}'"
-SCRIPT_ARGS="$${SCRIPT_ARGS} --k8s-user '$${K8S_USER}'"
-SCRIPT_ARGS="$${SCRIPT_ARGS} --k8s-version '$${K8S_MAJOR_MINOR_STREAM}'"
-SCRIPT_ARGS="$${SCRIPT_ARGS} --k8s-full-version '$${K8S_FULL_PATCH_VERSION}'"
-SCRIPT_ARGS="$${SCRIPT_ARGS} --k8s-package-suffix '$${K8S_APT_PACKAGE_SUFFIX}'"
-SCRIPT_ARGS="$${SCRIPT_ARGS} --pod-cidr '$${POD_CIDR_BLOCK}'"
-SCRIPT_ARGS="$${SCRIPT_ARGS} --service-cidr '$${SERVICE_CIDR_BLOCK}'"
-SCRIPT_ARGS="$${SCRIPT_ARGS} --controller-role '$${CONTROLLER_ROLE}'"
-SCRIPT_ARGS="$${SCRIPT_ARGS} --instance-id '$${INSTANCE_ID}'"
-SCRIPT_ARGS="$${SCRIPT_ARGS} --private-ip '$${PRIVATE_IP}'"
-SCRIPT_ARGS="$${SCRIPT_ARGS} --region '$${EC2_REGION}'"
-SCRIPT_ARGS="$${SCRIPT_ARGS} --ssm-join-path '$${SSM_JOIN_COMMAND_PATH}'"
-SCRIPT_ARGS="$${SCRIPT_ARGS} --ssm-cert-key-path '$${SSM_CERTIFICATE_KEY_PATH}'"
-
-if [ "$${CONTROLLER_ROLE}" = "secondary" ] && [ -n "$${PRIMARY_CONTROLLER_IP}" ]; then
-    SCRIPT_ARGS="$${SCRIPT_ARGS} --primary-controller-ip '$${PRIMARY_CONTROLLER_IP}'"
-fi
-
-echo "Command: $${LOCAL_SCRIPT_PATH} $${SCRIPT_ARGS}"
-
-# Execute the main script
-eval "$${LOCAL_SCRIPT_PATH} $${SCRIPT_ARGS}"
-
-# Capture the exit code
 MAIN_SCRIPT_EXIT_CODE=$?
 
 if [ $${MAIN_SCRIPT_EXIT_CODE} -eq 0 ]; then
     echo "=== Main control plane bootstrap script completed successfully ==="
-    
-    # Create completion signal files
-    echo "Creating completion signal files..."
-    mkdir -p /var/lib/cloud/instance/
-    touch /var/lib/cloud/instance/user-data-finished || echo "Warning: Failed to create completion signal"
-    
-    # Log success to CloudWatch if available
-    if command -v aws &> /dev/null; then
-        aws logs create-log-group --log-group-name "/aws/ec2/kubernetes-control-plane" --region "$${EC2_REGION}" 2>/dev/null || true
-        aws logs create-log-stream --log-group-name "/aws/ec2/kubernetes-control-plane" --log-stream-name "$${INSTANCE_ID}-$(date +%s)" --region "$${EC2_REGION}" 2>/dev/null || true
-        echo "Control plane bootstrap completed successfully for instance $${INSTANCE_ID} in cluster $${CLUSTER_NAME} (role: $${CONTROLLER_ROLE})" | \
-            aws logs put-log-events --log-group-name "/aws/ec2/kubernetes-control-plane" --log-stream-name "$${INSTANCE_ID}-$(date +%s)" --log-events timestamp=$(date +%s000),message="Control plane bootstrap success: $${INSTANCE_ID}" --region "$${EC2_REGION}" 2>/dev/null || true
-    fi
-    
-    echo "=== Control plane user data loader finished successfully at $(date) ==="
+    touch /var/lib/cloud/instance/user-data-finished
 else
     echo "=== FATAL: Main control plane bootstrap script failed with exit code $${MAIN_SCRIPT_EXIT_CODE} ==="
-    echo "Check main script log file for details: /var/log/control-plane-bootstrap.log"
-    
-    # Log failure to CloudWatch if available
-    if command -v aws &> /dev/null; then
-        echo "Control plane bootstrap failed for instance $${INSTANCE_ID} in cluster $${CLUSTER_NAME} with exit code $${MAIN_SCRIPT_EXIT_CODE}" | \
-            aws logs put-log-events --log-group-name "/aws/ec2/kubernetes-control-plane" --log-stream-name "$${INSTANCE_ID}-$(date +%s)" --log-events timestamp=$(date +%s000),message="Control plane bootstrap failed: $${INSTANCE_ID}" --region "$${EC2_REGION}" 2>/dev/null || true
-    fi
-    
     exit $${MAIN_SCRIPT_EXIT_CODE}
 fi
 

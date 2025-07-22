@@ -1,17 +1,13 @@
 # modules/iam/variables.tf
-# IAM module variables updated to use individual variables
 
-#===============================================================================
-# Core Configuration Variables
-#===============================================================================
-
+# Core configuration
 variable "project" {
-  description = "Project name used for resource naming"
+  description = "Name of the project"
   type        = string
 }
 
 variable "aws_region" {
-  description = "AWS region"
+  description = "AWS region for the deployment"
   type        = string
 }
 
@@ -20,40 +16,38 @@ variable "account_id" {
   type        = string
 }
 
-#===============================================================================
-# IAM Role Configuration Variables
-#===============================================================================
+variable "tags" {
+  description = "A map of tags to assign to the resources"
+  type        = map(string)
+  default     = {}
+}
 
+# Role names
 variable "control_plane_role_name" {
-  description = "Name of the control plane IAM role"
+  description = "Name of the IAM role for the control plane"
   type        = string
   default     = null
 }
 
 variable "worker_role_name" {
-  description = "Name of the worker IAM role"
+  description = "Name of the IAM role for worker nodes"
   type        = string
   default     = null
 }
 
 variable "gpu_worker_role_name" {
-  description = "Name of the GPU worker IAM role"
+  description = "Name of the IAM role for GPU worker nodes"
   type        = string
   default     = null
 }
 
 variable "cluster_name" {
-  description = "Kubernetes cluster name for IAM policies"
+  description = "Name of the Kubernetes cluster"
   type        = string
   default     = null
 }
 
-#===============================================================================
-# Optional Configuration Variables
-#===============================================================================
-
-variable "tags" {
-  description = "Tags to apply to IAM resources"
-  type        = map(string)
-  default     = {}
+variable "bootstrap_bucket_name" {
+  description = "Name of the S3 bucket for bootstrap"
+  type        = string
 }

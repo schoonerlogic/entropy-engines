@@ -57,8 +57,6 @@ module "controllers" {
   ssh_key_name         = var.security_config.ssh_key_name
   ssh_public_key_path  = var.security_config.ssh_public_key_path
   ssh_private_key_path = var.security_config.ssh_private_key_path
-  bastion_host         = var.security_config.bastion_host
-  bastion_user         = var.security_config.bastion_user
 
   # Storage configuration
   block_device_mappings = coalesce(
@@ -384,5 +382,19 @@ module "gpu_workers" {
 
   # Tags
   additional_tags = local.gpu_worker_config.additional_tags
+}
+
+module "ssh_config" {
+  source = "./modules/ssh-config"
+
+  cluster_name         = local.cluster_name
+  bastion_host         = module.aws_infrastructure.bastion_public_ip
+  bastion_user         = var.security_config.bastion_user
+  k8s_user             = var.kubernetes_config.k8s_user
+  ssh_private_key_path = var.security_config.ssh_private_key_path
+
+  controller_private_ips = module.controllers.private_ips
+  worker_gpu_private_ips = length(module.gpu_workers) > 0 ? module.gpu_workers[0].private_ips : []
+  worker_cpu_private_ips = length(module.cpu_workers) > 0 ? module.cpu_workers[0].private_ips : []
 }
 

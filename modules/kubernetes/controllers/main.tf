@@ -42,8 +42,6 @@ locals {
   ssh_public_key_path  = var.ssh_public_key_path
   ssh_private_key_path = var.ssh_private_key_path
   security_group_ids   = var.security_group_ids
-  bastion_host         = var.bastion_host
-  bastion_user         = var.bastion_user
 
   # Calculated values
   total_instance_count = local.on_demand_count + local.spot_count

@@ -88,6 +88,7 @@ module "iam" {
   control_plane_role_name = var.control_plane_role_name
   worker_role_name        = var.worker_role_name
   gpu_worker_role_name    = var.gpu_worker_role_name
+  bootstrap_bucket_name   = var.bootstrap_bucket_name
 }
 
 data "aws_caller_identity" "current" {}
