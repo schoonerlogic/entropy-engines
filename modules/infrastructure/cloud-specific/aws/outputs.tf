@@ -196,8 +196,15 @@ output "cluster_dns_ip" {
 
 output "base_aws_ami" {
   description = "Default operating system AMI ID"
-  value       = var.base_aws_ami
+  value       = module.network.base_aws_ami
 }
+
+output "base_gpu_ami" {
+  description = "Default operating system AMI ID"
+  value       = module.network.base_aws_ami
+}
+
+
 
 #===============================================================================
 # S3 Bootstrap Bucket Outputs

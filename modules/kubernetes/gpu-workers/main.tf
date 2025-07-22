@@ -18,7 +18,7 @@ module "gpu_worker_base" {
   instance_requirements     = var.instance_requirements
   on_demand_count           = var.on_demand_count
   spot_count                = var.spot_count
-  ami_id                    = var.ami_id
+  base_ami                  = var.base_gpu_ami
 
   # Kubernetes configuration
   k8s_user               = var.k8s_user

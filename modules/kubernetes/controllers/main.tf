@@ -31,8 +31,7 @@ locals {
   control_plane_role_name = var.control_plane_role_name
 
   # Network configuration
-  base_aws_ami       = var.ami_id
-  iam_policy_version = var.iam_policy_version
+  base_aws_ami       = var.base_aws_ami
   subnet_ids         = var.subnet_ids
   pod_cidr_block     = var.pod_cidr_block
   service_cidr_block = var.service_cidr_block
@@ -77,31 +76,21 @@ locals {
 data "aws_caller_identity" "current" {}
 data "aws_region" "current" {}
 
-# Reference to shared S3 bucket (assuming it's created elsewhere)
-data "aws_s3_bucket" "bootstrap_bucket" {
-  bucket = var.bootstrap_bucket_name
-}
-
-#===============================================================================
 # S3 Bootstrap Script Upload
 #===============================================================================
 
 resource "aws_s3_object" "controller_bootstrap_script" {
-  bucket = data.aws_s3_bucket.bootstrap_bucket.id
+  bucket = var.bootstrap_bucket_name
   key    = "scripts/${local.cluster_name}/${local.controller_bootstrap_script}"
   source = "${path.module}/scripts/${local.controller_bootstrap_script}"
+
+  depends_on = [var.bootstrap_bucket_dependency]
 
   # Ensure Terraform replaces the object if the file content changes
   etag = filemd5("${path.module}/scripts/${local.controller_bootstrap_script}")
 
   # Set content type for clarity
   content_type = "text/x-shellscript"
-
-  tags = merge(local.common_tags, {
-    Name    = "controller-bootstrap-script-${local.cluster_name}"
-    Script  = local.controller_bootstrap_script
-    Purpose = "kubernetes-control-plane-bootstrap"
-  })
 }
 
 #===============================================================================
@@ -195,7 +184,6 @@ resource "aws_launch_template" "controller_lt" {
     resource_type = "instance"
     tags = merge(local.common_tags, {
       Name                          = "${local.cluster_name}-controller"
-      IamPolicyVersion              = local.iam_policy_version
       "${local.controller_tag_key}" = local.controller_tag_value
     })
   }
@@ -252,7 +240,6 @@ resource "aws_autoscaling_group" "controller_asg" {
       on_demand_percentage_above_base_capacity = local.on_demand_count > 0 && local.spot_count > 0 ? floor((local.on_demand_count / local.total_instance_count) * 100) : (local.on_demand_count > 0 ? 100 : 0)
 
       spot_allocation_strategy = var.spot_allocation_strategy
-      spot_instance_pools      = var.spot_instance_pools
     }
   }
 
@@ -263,7 +250,7 @@ resource "aws_autoscaling_group" "controller_asg" {
       min_healthy_percentage = var.min_healthy_percentage
       instance_warmup        = 600 # Control plane needs more time to bootstrap
     }
-    triggers = ["tag", "launch_template"]
+    triggers = ["tag"]
   }
 
   dynamic "tag" {

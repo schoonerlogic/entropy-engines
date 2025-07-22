@@ -49,15 +49,9 @@ locals {
     Module     = "worker-base"
   })
 }
-
 #===============================================================================
 # Data Sources
 #===============================================================================
-
-# Reference to shared S3 bucket
-data "aws_s3_bucket" "bootstrap_bucket" {
-  bucket = var.bootstrap_bucket_name
-}
 
 # Get current AWS account and region
 data "aws_caller_identity" "current" {}
@@ -68,21 +62,17 @@ data "aws_region" "current" {}
 #===============================================================================
 
 resource "aws_s3_object" "worker_script" {
-  bucket = data.aws_s3_bucket.bootstrap_bucket.id
-  key    = "scripts/${var.cluster_name}/${local.bootstrap_script_name}"
+  bucket = var.bootstrap_bucket_name
+  key    = "scripts/${var.cluster_name}/${var.worker_type}-bootstrap-script"
   source = local.bootstrap_script_path
+
+  depends_on = [var.bootstrap_bucket_dependency]
 
   # Ensure Terraform replaces the object if the file content changes
   etag = filemd5(local.bootstrap_script_path)
 
   # Set content type for clarity
   content_type = "text/x-shellscript"
-
-  tags = merge(local.common_tags, {
-    Name    = "${var.worker_type}-bootstrap-script-${var.cluster_name}"
-    Script  = local.bootstrap_script_name
-    Purpose = "kubernetes-bootstrap"
-  })
 }
 
 #===============================================================================
@@ -108,7 +98,7 @@ resource "aws_launch_template" "worker_lt" {
   description = "Launch template for ${var.cluster_name} ${var.worker_type} workers"
 
   # Instance configuration
-  image_id      = var.ami_id
+  image_id      = var.base_ami
   instance_type = local.using_instance_requirements ? null : var.instance_types[0]
   key_name      = var.ssh_key_name
 
@@ -224,7 +214,7 @@ resource "aws_autoscaling_group" "worker_asg" {
         for_each = local.using_instance_requirements ? [var.instance_requirements] : []
         content {
           instance_requirements {
-            # Required attributes
+            # Required attributes - these must always be present
             vcpu_count {
               min = override.value.vcpu_count.min
               max = override.value.vcpu_count.max
@@ -234,66 +224,13 @@ resource "aws_autoscaling_group" "worker_asg" {
               max = override.value.memory_mib.max
             }
 
-            # Optional basic attributes
-            # cpu_architectures             = override.value.cpu_architectures
-            # excluded_instance_generations = override.value.excluded_instance_generations
-            # excluded_instance_types       = override.value.excluded_instance_types
-            # allowed_instance_types        = override.value.allowed_instance_types
-            # instance_categories           = override.value.instance_categories
-            # burstable_performance         = override.value.burstable_performance
-            # bare_metal                    = override.value.bare_metal
-            # require_hibernate_support     = override.value.require_hibernate_support
+            # Only include optional fields that you're actually passing in
+            # Remove these lines if you're not using them:
 
-            # Storage requirements
-            local_storage       = override.value.local_storage
-            local_storage_types = override.value.local_storage_types
-
-            dynamic "total_local_storage_gb" {
-              for_each = override.value.total_local_storage_gb != null ? [override.value.total_local_storage_gb] : []
-              content {
-                min = total_local_storage_gb.value.min
-                max = total_local_storage_gb.value.max
-              }
-            }
-
-            # Network requirements
-            dynamic "network_interface_count" {
-              for_each = override.value.network_interface_count != null ? [override.value.network_interface_count] : []
-              content {
-                min = network_interface_count.value.min
-                max = network_interface_count.value.max
-              }
-            }
-
-            dynamic "network_bandwidth_gbps" {
-              for_each = override.value.network_bandwidth_gbps != null ? [override.value.network_bandwidth_gbps] : []
-              content {
-                min = network_bandwidth_gbps.value.min
-                max = network_bandwidth_gbps.value.max
-              }
-            }
-
-            # EBS bandwidth requirements
-            dynamic "baseline_ebs_bandwidth_mbps" {
-              for_each = override.value.baseline_ebs_bandwidth_mbps != null ? [override.value.baseline_ebs_bandwidth_mbps] : []
-              content {
-                min = baseline_ebs_bandwidth_mbps.value.min
-                max = baseline_ebs_bandwidth_mbps.value.max
-              }
-            }
-
-            # GPU requirements (only for GPU workers)
-            dynamic "accelerator_count" {
-              for_each = override.value.accelerator_count != null ? [override.value.accelerator_count] : []
-              content {
-                min = accelerator_count.value.min
-                max = accelerator_count.value.max
-              }
-            }
-
-            accelerator_manufacturers = override.value.accelerator_manufacturers
-            accelerator_names         = override.value.accelerator_names
-            accelerator_types         = override.value.accelerator_types
+            # Uncomment only if you're passing these in your var.instance_requirements:
+            # cpu_architectures = try(override.value.cpu_architectures, null)
+            # instance_categories = try(override.value.instance_categories, null)
+            # burstable_performance = try(override.value.burstable_performance, null)
           }
         }
       }
@@ -303,10 +240,8 @@ resource "aws_autoscaling_group" "worker_asg" {
       on_demand_base_capacity                  = var.on_demand_count
       on_demand_percentage_above_base_capacity = local.on_demand_percentage
       spot_allocation_strategy                 = var.spot_allocation_strategy
-      spot_instance_pools                      = var.spot_instance_pools
     }
   }
-
   # Instance refresh for rolling updates
   instance_refresh {
     strategy = "Rolling"
@@ -314,7 +249,6 @@ resource "aws_autoscaling_group" "worker_asg" {
       min_healthy_percentage = var.min_healthy_percentage
       instance_warmup        = var.instance_warmup
     }
-    triggers = var.instance_refresh_triggers
   }
 
   # ASG tags

@@ -61,8 +61,8 @@ variable "instance_requirements" {
       max = optional(number)
     }))
     accelerator_manufacturers = optional(list(string))
-    accelerator_names        = optional(list(string))
-    accelerator_types        = optional(list(string))
+    accelerator_names         = optional(list(string))
+    accelerator_types         = optional(list(string))
   })
   default = null
 }
@@ -77,8 +77,8 @@ variable "spot_count" {
   type        = number
 }
 
-variable "ami_id" {
-  description = "AMI ID for worker instances"
+variable "base_aws_ami" {
+  description = "AMI ID for cpu worker instances"
   type        = string
 }
 
@@ -143,6 +143,12 @@ variable "bootstrap_bucket_name" {
   type        = string
 }
 
+variable "bootstrap_bucket_dependency" {
+  description = "S3 bucket dependency"
+  type        = any
+  default     = null
+}
+
 #===============================================================================
 # Auto Scaling Group Configuration
 #===============================================================================
@@ -189,7 +195,7 @@ variable "capacity_timeout" {
 variable "instance_refresh_triggers" {
   description = "List of triggers for instance refresh"
   type        = list(string)
-  default     = ["tag", "launch_template"]
+  default     = ["tag"]
 }
 
 #===============================================================================

@@ -23,7 +23,7 @@ variable "network_config" {
   type = object({
     base_aws_ami          = optional(string, null)
     gpu_aws_ami           = optional(string, null) # Separate GPU AMI with NVIDIA drivers
-    bootstrap_bucket_name = optional(string, "worker_boostrap_bucket")
+    bootstrap_bucket_name = optional(string, "k8s-worker-bootstrap-bucket")
     vpc_cidr              = optional(string, "10.0.0.0/16")
 
     kubernetes_cidrs = optional(object({
@@ -223,7 +223,7 @@ variable "worker_config" {
       min_healthy_percentage    = optional(number, 50)
       instance_warmup           = optional(number, 300)
       capacity_timeout          = optional(string, "15m")
-      instance_refresh_triggers = optional(list(string), ["tag", "launch_template"])
+      instance_refresh_triggers = optional(list(string), ["tag"])
     }), {})
 
     #---------------------------------------------------------------------------
@@ -330,9 +330,9 @@ variable "worker_config" {
 variable "iam_config" {
   description = "IAM configuration settings"
   type = object({
-    control_plane_role_name = optional(string, null)
-    worker_role_name        = optional(string, null)
-    gpu_worker_role_name    = optional(string, null) # Optional separate GPU role with additional permissions
+    control_plane_role_name = optional(string, "control-plane-role-name")
+    worker_role_name        = optional(string, "cpu-worker-role-name")
+    gpu_worker_role_name    = optional(string, "gpu-worker-role-name") # Optional separate GPU role with additional permissions
   })
   default = {}
 }

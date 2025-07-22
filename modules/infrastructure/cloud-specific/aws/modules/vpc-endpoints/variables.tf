@@ -43,7 +43,7 @@ variable "enable_spot_instances" {
 variable "enable_vpc_endpoints" {
   description = "Enable VPC endpoints for cost optimization"
   type        = bool
-  default     = true
+  default     = false
 }
 
 #===============================================================================

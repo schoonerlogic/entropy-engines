@@ -18,7 +18,7 @@ module "cpu_worker_base" {
   instance_requirements     = var.instance_requirements
   on_demand_count           = var.on_demand_count
   spot_count                = var.spot_count
-  ami_id                    = var.ami_id
+  base_ami                  = var.base_aws_ami
 
   # Kubernetes configuration
   k8s_user               = var.k8s_user
@@ -37,6 +37,7 @@ module "cpu_worker_base" {
   # S3 bootstrap (CPU workers use cpu-node-init.sh)
   bootstrap_bucket_name = var.bootstrap_bucket_name
   bootstrap_script_name = "cpu-node-init.sh"
+
 
   # ASG Configuration
   min_size                  = var.min_size

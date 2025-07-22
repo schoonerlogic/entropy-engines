@@ -1,19 +1,23 @@
 # root - kubernetes.tf
 
 
-# resource "aws_s3_bucket" "bootstrap_bucket" {
-#   # The bucket name must be globally unique across all of AWS.
-#   # You should replace "my-unique-bucket-name-12345" with a name
-#   # that you choose.
-#   bucket = var.network_config.bootstrap_bucket_name
-#
-#   # Tags are key-value pairs that you can attach to AWS resources.
-#   # They are useful for organizing and managing your resources.
-#   tags = {
-#     Name        = "bootstrap_bucket_name"
-#     Environment = "Dev"
-#   }
-# }
+resource "aws_s3_bucket" "bootstrap_bucket" {
+  # The bucket name must be globally unique across all of AWS.
+  # You should replace "my-unique-bucket-name-12345" with a name
+  # that you choose.
+  bucket        = "${var.network_config.bootstrap_bucket_name}-${random_id.bucket_suffix.hex}"
+  force_destroy = true
+  # Tags are key-value pairs that you can attach to AWS resources.
+  # They are useful for organizing and managing your resources.
+  tags = {
+    Name        = "${var.network_config.bootstrap_bucket_name}-${random_id.bucket_suffix.hex}"
+    Environment = "Dev"
+  }
+}
+
+resource "random_id" "bucket_suffix" {
+  byte_length = 4
+}
 
 # Controllers Module - No Provisioners, Self-Bootstrapping
 module "controllers" {
@@ -27,27 +31,27 @@ module "controllers" {
   on_demand_count = var.k8s_control_plane_config.on_demand_count
   spot_count      = var.k8s_control_plane_config.spot_count
   instance_types  = [var.k8s_control_plane_config.instance_type]
-  ami_id          = var.network_config.base_aws_ami
+  base_aws_ami    = module.aws_infrastructure.base_aws_ami.id
 
   # Kubernetes configuration
   k8s_user               = var.kubernetes_config.k8s_user
   k8s_major_minor_stream = var.kubernetes_config.k8s_major_minor_stream
   k8s_full_patch_version = var.kubernetes_config.k8s_full_patch_version
   k8s_apt_package_suffix = var.kubernetes_config.k8s_apt_package_suffix
-  pod_cidr_block         = var.network_config.kubernetes_cidrs.pod_cidr
-  service_cidr_block     = var.network_config.kubernetes_cidrs.service_cidr
+  pod_cidr_block         = module.aws_infrastructure.pod_cidr_block
+  service_cidr_block     = module.aws_infrastructure.service_cidr_block
 
   # Networking
-  subnet_ids         = var.network_config.subnet_ids
-  security_group_ids = var.security_config.security_group_ids
+  subnet_ids         = module.aws_infrastructure.private_subnet_ids
+  security_group_ids = [module.aws_infrastructure.control_plane_security_group_id]
 
   # IAM
   control_plane_role_name = (var.iam_config.control_plane_role_name != null ?
   var.iam_config.control_plane_role_name : "${var.core_config.project}-control-plane-role")
-  iam_policy_version = var.network_config.iam_policy_version
 
   # S3
-  bootstrap_bucket_name = var.network_config.bootstrap_bucket_name
+  bootstrap_bucket_name       = module.aws_infrastructure.bootstrap_bucket_name
+  bootstrap_bucket_dependency = aws_s3_bucket.bootstrap_bucket.bucket
 
   # SSH (still needed for troubleshooting, but not used by bootstrap process)
   ssh_key_name         = var.security_config.ssh_key_name
@@ -137,7 +141,7 @@ locals {
     )
 
     # AMI selection
-    ami_id = var.network_config.base_aws_ami
+    ami_id = module.aws_infrastructure.base_aws_ami.id
 
     # Worker role
     worker_role_name = coalesce(
@@ -241,7 +245,7 @@ locals {
     var.worker_config.storage_config.block_device_mappings)
 
     # AMI selection (use GPU AMI if provided, otherwise base AMI)
-    ami_id = data.aws_ami.ubuntu
+    ami_id = module.aws_infrastructure.base_gpu_ami.id
 
     # Worker role (can be different for GPU workers)
     worker_role_name = coalesce(
@@ -284,7 +288,7 @@ module "cpu_workers" {
   instance_requirements     = local.cpu_worker_config.instance_requirements
   on_demand_count           = local.cpu_worker_config.on_demand_count
   spot_count                = local.cpu_worker_config.spot_count
-  ami_id                    = local.cpu_worker_config.ami_id
+  base_aws_ami              = local.cpu_worker_config.ami_id
 
   # Kubernetes config (from original variables)
   k8s_user               = var.kubernetes_config.k8s_user
@@ -292,16 +296,16 @@ module "cpu_workers" {
   cluster_dns_ip         = var.network_config.kubernetes_cidrs.pod_cidr
 
   # Networking
-  subnet_ids         = var.network_config.subnet_ids
-  security_group_ids = var.security_config.security_group_ids
+  subnet_ids         = module.aws_infrastructure.private_subnet_ids
+  security_group_ids = [module.aws_infrastructure.worker_nodes_security_group_id]
 
   # IAM
   worker_role_name   = local.cpu_worker_config.worker_role_name
   iam_policy_version = var.network_config.iam_policy_version
 
   # S3
-  bootstrap_bucket_name = var.network_config.bootstrap_bucket_name
-
+  bootstrap_bucket_name       = var.network_config.bootstrap_bucket_name
+  bootstrap_bucket_dependency = aws_s3_bucket.bootstrap_bucket.bucket
   # SSH
   ssh_key_name = var.security_config.ssh_key_name
 
@@ -340,23 +344,23 @@ module "gpu_workers" {
   instance_requirements     = local.gpu_worker_config.instance_requirements
   on_demand_count           = local.gpu_worker_config.on_demand_count
   spot_count                = local.gpu_worker_config.spot_count
-  ami_id                    = data.aws_ami.ubuntu.id
-
+  base_gpu_ami              = local.gpu_worker_config.ami_id
   # Kubernetes config
   k8s_user               = var.kubernetes_config.k8s_user
   k8s_major_minor_stream = var.kubernetes_config.k8s_major_minor_stream
   cluster_dns_ip         = var.network_config.cluster_dns_ip
 
   # Networking
-  subnet_ids         = var.network_config.subnet_ids
-  security_group_ids = var.security_config.security_group_ids
+  subnet_ids         = module.aws_infrastructure.private_subnet_ids
+  security_group_ids = [module.aws_infrastructure.worker_nodes_security_group_id]
 
   # IAM
   worker_role_name   = local.gpu_worker_config.worker_role_name
   iam_policy_version = var.network_config.iam_policy_version
 
   # S3
-  bootstrap_bucket_name = var.network_config.bootstrap_bucket_name
+  bootstrap_bucket_name       = var.network_config.bootstrap_bucket_name
+  bootstrap_bucket_dependency = aws_s3_bucket.bootstrap_bucket.bucket
 
   # SSH
   ssh_key_name = var.security_config.ssh_key_name

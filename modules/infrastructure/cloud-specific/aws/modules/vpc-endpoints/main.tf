@@ -10,7 +10,10 @@ terraform {
   }
 }
 
+
+
 locals {
+  enable_vpc_endpoints = false
   # Common tags
   common_tags = merge({
     ManagedBy = "terraform"
@@ -20,7 +23,7 @@ locals {
 
 # S3 Gateway VPC Endpoint (free and reduces NAT gateway costs)
 resource "aws_vpc_endpoint" "s3" {
-  count = var.enable_vpc_endpoints ? 1 : 0
+  count = local.enable_vpc_endpoints ? 1 : 0
 
   vpc_id          = var.vpc_id
   service_name    = "com.amazonaws.${var.region}.s3"
@@ -34,7 +37,7 @@ resource "aws_vpc_endpoint" "s3" {
 
 # DynamoDB Gateway VPC Endpoint (free and reduces NAT gateway costs)
 resource "aws_vpc_endpoint" "dynamodb" {
-  count = var.enable_vpc_endpoints ? 1 : 0
+  count = local.enable_vpc_endpoints ? 1 : 0
 
   vpc_id          = var.vpc_id
   service_name    = "com.amazonaws.${var.region}.dynamodb"
@@ -48,7 +51,7 @@ resource "aws_vpc_endpoint" "dynamodb" {
 
 # EC2 Interface VPC Endpoint (reduces NAT gateway costs for EC2 API calls)
 resource "aws_vpc_endpoint" "ec2" {
-  count = var.enable_vpc_endpoints ? 1 : 0
+  count = local.enable_vpc_endpoints ? 1 : 0
 
   vpc_id              = var.vpc_id
   service_name        = "com.amazonaws.${var.region}.ec2"
@@ -65,7 +68,7 @@ resource "aws_vpc_endpoint" "ec2" {
 
 # ECR API Interface VPC Endpoint (for container image management)
 resource "aws_vpc_endpoint" "ecr_api" {
-  count = var.enable_vpc_endpoints ? 1 : 0
+  count = local.enable_vpc_endpoints ? 1 : 0
 
   vpc_id              = var.vpc_id
   service_name        = "com.amazonaws.${var.region}.ecr.api"
@@ -82,7 +85,7 @@ resource "aws_vpc_endpoint" "ecr_api" {
 
 # ECR DKR Interface VPC Endpoint (for Docker registry)
 resource "aws_vpc_endpoint" "ecr_dkr" {
-  count = var.enable_vpc_endpoints ? 1 : 0
+  count = local.enable_vpc_endpoints ? 1 : 0
 
   vpc_id              = var.vpc_id
   service_name        = "com.amazonaws.${var.region}.ecr.dkr"
@@ -99,7 +102,7 @@ resource "aws_vpc_endpoint" "ecr_dkr" {
 
 # SSM Interface VPC Endpoint (for Systems Manager)
 resource "aws_vpc_endpoint" "ssm" {
-  count = var.enable_vpc_endpoints ? 1 : 0
+  count = local.enable_vpc_endpoints ? 1 : 0
 
   vpc_id              = var.vpc_id
   service_name        = "com.amazonaws.${var.region}.ssm"
@@ -116,7 +119,7 @@ resource "aws_vpc_endpoint" "ssm" {
 
 # SSM Messages Interface VPC Endpoint
 resource "aws_vpc_endpoint" "ssm_messages" {
-  count = var.enable_vpc_endpoints ? 1 : 0
+  count = local.enable_vpc_endpoints ? 1 : 0
 
   vpc_id              = var.vpc_id
   service_name        = "com.amazonaws.${var.region}.ssmmessages"
@@ -133,7 +136,7 @@ resource "aws_vpc_endpoint" "ssm_messages" {
 
 # EC2 Messages Interface VPC Endpoint
 resource "aws_vpc_endpoint" "ec2_messages" {
-  count = var.enable_vpc_endpoints ? 1 : 0
+  count = local.enable_vpc_endpoints ? 1 : 0
 
   vpc_id              = var.vpc_id
   service_name        = "com.amazonaws.${var.region}.ec2messages"
@@ -150,7 +153,7 @@ resource "aws_vpc_endpoint" "ec2_messages" {
 
 # CloudWatch Logs Interface VPC Endpoint
 resource "aws_vpc_endpoint" "logs" {
-  count = var.enable_vpc_endpoints ? 1 : 0
+  count = local.enable_vpc_endpoints ? 1 : 0
 
   vpc_id              = var.vpc_id
   service_name        = "com.amazonaws.${var.region}.logs"
@@ -167,7 +170,7 @@ resource "aws_vpc_endpoint" "logs" {
 
 # CloudWatch Monitoring Interface VPC Endpoint
 resource "aws_vpc_endpoint" "monitoring" {
-  count = var.enable_vpc_endpoints ? 1 : 0
+  count = local.enable_vpc_endpoints ? 1 : 0
 
   vpc_id              = var.vpc_id
   service_name        = "com.amazonaws.${var.region}.monitoring"

@@ -36,7 +36,7 @@ variable "instance_types" {
   type        = list(string)
 }
 
-variable "ami_id" {
+variable "base_aws_ami" {
   description = "AMI ID for controller instances"
   type        = string
 }
@@ -98,10 +98,6 @@ variable "control_plane_role_name" {
   type        = string
 }
 
-variable "iam_policy_version" {
-  description = "Version of the IAM policy"
-  type        = string
-}
 
 #===============================================================================
 # S3 Bootstrap Configuration
@@ -110,6 +106,12 @@ variable "iam_policy_version" {
 variable "bootstrap_bucket_name" {
   description = "Name of the S3 bucket containing bootstrap scripts"
   type        = string
+}
+
+variable "bootstrap_bucket_dependency" {
+  description = "S3 bucket dependency"
+  type        = any
+  default     = null
 }
 
 #===============================================================================

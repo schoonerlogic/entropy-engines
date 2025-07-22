@@ -100,7 +100,7 @@ variable "spot_count" {
   type        = number
 }
 
-variable "ami_id" {
+variable "base_ami" {
   description = "AMI ID for worker instances"
   type        = string
 }
@@ -172,6 +172,12 @@ variable "bootstrap_script_name" {
   default     = null # Will be determined by worker_type if not specified
 }
 
+variable "bootstrap_bucket_dependency" {
+  description = "S3 bucket dependency"
+  type        = any
+  default     = null
+}
+
 #===============================================================================
 # Auto Scaling Group Configuration
 #===============================================================================
@@ -221,7 +227,7 @@ variable "capacity_timeout" {
 variable "instance_refresh_triggers" {
   description = "List of triggers for instance refresh"
   type        = list(string)
-  default     = ["tag", "launch_template"]
+  default     = ["tag"]
 }
 
 #===============================================================================
