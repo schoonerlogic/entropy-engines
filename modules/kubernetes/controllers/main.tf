@@ -21,11 +21,12 @@ locals {
   instance_types  = var.instance_types
 
   # Kubernetes configuration
-  cluster_name           = var.cluster_name
-  k8s_user               = var.k8s_user
-  k8s_major_minor_stream = var.k8s_major_minor_stream
-  k8s_full_patch_version = var.k8s_full_patch_version
-  k8s_apt_package_suffix = var.k8s_apt_package_suffix
+  cluster_name               = var.cluster_name
+  k8s_user                   = var.k8s_user
+  k8s_major_minor_stream     = var.k8s_major_minor_stream
+  k8s_full_patch_version     = var.k8s_full_patch_version
+  k8s_apt_package_suffix     = var.k8s_apt_package_suffix
+  k8s_package_version_string = "${var.k8s_full_patch_version}-${var.k8s_apt_package_suffix}"
 
   # IAM configuration
   control_plane_role_name = var.control_plane_role_name
@@ -55,7 +56,8 @@ locals {
   ssm_certificate_key_path = "/entropy-engines/${local.cluster_name}/join-command/certificate/key"
 
   # Script selection
-  controller_bootstrap_script = "control-plane-bootstrap.sh"
+  control_plane_bootstrap_script     = "control-plane-bootstrap.sh.tftpl"
+  control_plane_bootstrap_script_key = "cp-bootstrap.sh"
 
   # Common tags
   common_tags = merge(var.additional_tags, {
@@ -77,19 +79,38 @@ data "aws_region" "current" {}
 # S3 Bootstrap Script Upload
 #===============================================================================
 
-resource "aws_s3_object" "controller_bootstrap_script" {
-  bucket = var.bootstrap_bucket_name
-  key    = "scripts/${local.cluster_name}/${local.controller_bootstrap_script}"
-  source = "${path.module}/scripts/${local.controller_bootstrap_script}"
+locals {
+  # Define each script, its template, and its specific variables
+  control_plane_scripts = {
+    "01-install_user_and_tooling" = {
+      template_path = "${path.module}/templates/control-plane-bootstrap.sh.tftpl"
+      vars = {
+        k8s_user                   = local.k8s_user
+        k8s_major_minor_stream     = local.k8s_major_minor_stream
+        k8s_package_version_string = local.k8s_package_version_string
+      }
+    },
+  }
 
-  depends_on = [var.bootstrap_bucket_dependency]
-
-  # Ensure Terraform replaces the object if the file content changes
-  etag = filemd5("${path.module}/scripts/${local.controller_bootstrap_script}")
-
-  # Set content type for clarity
-  content_type = "text/x-shellscript"
+  rendered_s3_scripts = {
+    for key, config in local.control_plane_scripts : key => templatefile(config.template_path, config.vars)
+  }
 }
+
+resource "aws_s3_object" "control_plane_setup_scripts" {
+  for_each = local.rendered_s3_scripts
+
+  bucket = var.bootstrap_bucket_name
+
+  key = "scripts/${each.key}.sh"
+
+  content = each.value
+
+  etag = md5(each.value)
+
+  # depends_on = [var.bootstrap_bucket_dependency]
+}
+
 
 #===============================================================================
 # IAM Instance Profile
@@ -117,28 +138,8 @@ resource "aws_launch_template" "controller_lt" {
   key_name = local.ssh_key_name
 
   # User data for self-bootstrapping control plane
-  user_data = base64encode(templatefile("${path.module}/templates/controller-user-data.sh.tftpl", {
-    # S3 script information
-    s3_script_uri         = "s3://${var.bootstrap_bucket_name}/${aws_s3_object.controller_bootstrap_script.key}"
-    bootstrap_bucket_name = var.bootstrap_bucket_name
-
-    # Cluster information
-    cluster_name = local.cluster_name
-
-    # Kubernetes configuration
-    k8s_user               = local.k8s_user
-    k8s_major_minor_stream = local.k8s_major_minor_stream
-    k8s_full_patch_version = local.k8s_full_patch_version
-    k8s_apt_package_suffix = local.k8s_apt_package_suffix
-    ssh_public_key         = file(pathexpand(local.ssh_public_key_path))
-
-    # Network configuration
-    pod_cidr_block     = local.pod_cidr_block
-    service_cidr_block = local.service_cidr_block
-
-    # SSM paths
-    ssm_join_command_path    = local.ssm_join_command_path
-    ssm_certificate_key_path = local.ssm_certificate_key_path
+  user_data = base64encode(templatefile("${path.module}/templates/entrypoint.sh.tftpl", {
+    s3_bucket_name = var.bootstrap_bucket_name
   }))
 
   iam_instance_profile {
@@ -269,7 +270,7 @@ resource "aws_autoscaling_group" "controller_asg" {
 
   depends_on = [
     aws_iam_instance_profile.controller_profile,
-    aws_s3_object.controller_bootstrap_script
+    aws_s3_object.control_plane_setup_scripts
   ]
 }
 

@@ -1,0 +1,38 @@
+#!/bin/bash
+set -euxo pipefail
+
+S3_SCRIPTS_BUCKET="${s3_bucket_name}"
+DOWNLOAD_DIR="/tmp/k8s-scripts"
+mkdir -p "$${DOWNLOAD_DIR}"
+
+if ! command -v aws &> /dev/null; then
+    echo "AWS CLI not found. Installing AWS CLI v2..."
+
+    # Ensure dependencies are present
+    apt-get update -y
+    apt-get install -y --no-install-recommends curl unzip
+
+    # Download and install AWS CLI v2 for ARM64
+    curl "https://awscli.amazonaws.com/awscli-exe-linux-aarch64.zip" -o "awscliv2.zip"
+    unzip awscliv2.zip
+    ./aws/install
+
+    # Clean up installation files
+    rm -rf awscliv2.zip aws
+
+    echo "AWS CLI v2 installed successfully"
+else
+    echo "AWS CLI found: $(command -v aws)"
+fi
+
+echo "--- Downloading all k8s setup scripts from S3 ---"
+aws s3 cp "s3://$${S3_SCRIPTS_BUCKET}/scripts/" "$${DOWNLOAD_DIR}" --recursive
+
+echo "--- Executing scripts in numerical order ---"
+for script in $(find "$${DOWNLOAD_DIR}" -name '*.sh' | sort); do
+  echo ">>> Running $${script}"
+  chmod +x "$${script}"
+  "$${script}" # Run the script
+done
+
+echo "--- Node bootstrap complete ---"

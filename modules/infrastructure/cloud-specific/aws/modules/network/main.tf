@@ -116,27 +116,6 @@ data "aws_ec2_managed_prefix_list" "s3" {
   name = "com.amazonaws.${var.region}.s3"
 }
 
-# EIP for NAT Gateway (only if using gateway)
-resource "aws_eip" "nat_eip" {
-  count  = var.nat_type == "gateway" ? 1 : 0
-  domain = "vpc"
-
-  tags = merge(local.common_tags, {
-    Name = "${var.project}-${var.environment}-nat-eip"
-  })
-}
-
-# NAT Gateway
-resource "aws_nat_gateway" "nat_gateway" {
-  count         = var.nat_type == "gateway" ? 1 : 0
-  allocation_id = aws_eip.nat_eip[0].id
-  subnet_id     = module.vpc.public_subnets[0]
-
-  tags = merge(local.common_tags, {
-    Name = "${var.project}-${var.environment}-nat-gateway"
-  })
-}
-
 # Bastion Host (conditionally created)
 resource "aws_instance" "bastion" {
   count = var.enable_bastion_host ? 1 : 0

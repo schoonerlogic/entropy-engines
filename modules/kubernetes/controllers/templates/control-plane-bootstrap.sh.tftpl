@@ -2,32 +2,64 @@
 
 set -euxo pipefail 
 
+# --- Wait for network to be ready ---
+echo "Waiting for network readiness..."
+for i in {1..10}; do
+    if ping -c 1 8.8.8.8 &>/dev/null; then
+        echo "Network is ready."
+        break
+    fi
+    echo "Network not ready yet (attempt $i), waiting 5 seconds..."
+    sleep 5
+done
+
+# If the loop finished without success, exit
+if ! ping -c 1 8.8.8.8 &>/dev/null; then
+    echo "FATAL: Network failed to become ready after multiple attempts."
+    exit 1
+fi
+
 echo "Bootstrap script started at $(date) in $(pwd)" # Add timestamp/context
 
-LOG_FILE="/var/log/bootstrap.log"
-exec > >(tee -a $${LOG_FILE}) 2>&1 # Redirect stdout/stderr to log file and console
+LOG_FILE="/var/log/control-node-bootstrap.log"
+
+touch $LOG_FIL ;E
+chmod 644 $LOG_FILE
+exec > >(tee -a $LOG_FILE) 2>&1
 
 
 # --- Configuration Variables (Passed from Terraform Templatefile) ---
 # Ensure these are provided by your templatefile data source's 'vars' map
 TARGET_USER="${k8s_user}"
-K8S_REPO_STREAM="${k8s_repo_stream_for_apt}" # e.g., 1.33 (used for repo URL)
-K8S_PKG_VERSION_STRING="${k8s_package_version_for_install}" # e.g., 1.33.1-00 (used for apt install)
+K8S_REPO_STREAM="${k8s_major_minor_stream}" # e.g., 1.33 (used for repo URL)
+K8S_PKG_VERSION_STRING="${k8s_package_version_string}" # e.g., 1.33.1-00 (used for apt install)
 
-
+echo "=== Control Plane Bootstrap Started ==="
+echo "Cluster User: $TARGET_USER"
+echo "K8S Repo Version: $K8S_REPO_STREAM"
+echo "K8S Pkg Version: $K8S_PKG_VERSION_STRING"
 
 # --- Fetch Instance Private IP ---
 echo "Fetching instance private IP from metadata..."
-INSTANCE_PRIVATE_IP=$(curl -s http://169.254.169.254/latest/meta-data/local-ipv4)
+for i in {1..5}; do
+    # First, get a session token
+    TOKEN=$(curl -s -X PUT "http://169.254.169.254/latest/api/token" -H "X-aws-ec2-metadata-token-ttl-seconds: 21600")
+    
+    if [ -n "$TOKEN" ]; then
+        # Use the token to get the private IP
+        INSTANCE_PRIVATE_IP=$(curl -s -H "X-aws-ec2-metadata-token: $TOKEN" http://169.254.169.254/latest/meta-data/local-ipv4)
+        if [ -n "$INSTANCE_PRIVATE_IP" ]; then
+            break # Exit loop on success
+        fi
+    fi
+    echo "Attempt $i to fetch metadata failed. Retrying in 5 seconds..."
+    sleep 5
+done
+
+# Fail if the IP is still empty after all retries
 if [ -z "$INSTANCE_PRIVATE_IP" ]; then
-    echo "FATAL: Could not determine instance private IP from metadata service."
-    exit 1
+    echo "FATAL: Could not determine instance private IP from metadata service after multiple retries."
 fi
-echo "Instance private IP: $${INSTANCE_PRIVATE_IP}"
-# --- End Fetch Instance Private IP ---
-
-
-echo "Setting up user: $${TARGET_USER}"
 
 # --- User Setup ---
 # Create user if they don't exist
@@ -74,7 +106,6 @@ echo "net.ipv4.ip_forward = 1" | sudo tee /etc/sysctl.d/k8s.conf
 echo "net.bridge.bridge-nf-call-iptables = 1" > /etc/sysctl.d/k8s.conf # Added bridge setting often needed
 echo "net.ipv4.ip_forward = 1" >> /etc/sysctl.d/k8s.conf # Use >> to append
 sysctl --system # Reload sysctl settings
-
 
 # Install dependencies
 export DEBIAN_FRONTEND=noninteractive
@@ -144,14 +175,11 @@ sudo systemctl restart containerd
 echo "Enabling containerd service..."
 sudo systemctl enable containerd
 
-
-
-
 # Optional: Brief wait/check for socket
 echo "Waiting briefly for containerd socket..."
 sleep 5
 if [ ! -S /var/run/containerd/containerd.sock ]; then
-  echo "WARNING: containerd socket not found after restart!"
+  warn "WARNING: containerd socket not found after restart!"
 fi
 
 echo "Containerd configured and restarted."

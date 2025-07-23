@@ -1,23 +1,23 @@
 # root - kubernetes.tf
 
 
-resource "aws_s3_bucket" "bootstrap_bucket" {
-  # The bucket name must be globally unique across all of AWS.
-  # You should replace "my-unique-bucket-name-12345" with a name
-  # that you choose.
-  bucket        = "${var.network_config.bootstrap_bucket_name}-${random_id.bucket_suffix.hex}"
-  force_destroy = true
-  # Tags are key-value pairs that you can attach to AWS resources.
-  # They are useful for organizing and managing your resources.
-  tags = {
-    Name        = "${var.network_config.bootstrap_bucket_name}-${random_id.bucket_suffix.hex}"
-    Environment = "Dev"
-  }
-}
+# resource "aws_s3_bucket" "bootstrap_bucket" {
+#   # The bucket name must be globally unique across all of AWS.
+#   # You should replace "my-unique-bucket-name-12345" with a name
+#   # that you choose.
+#   bucket        = "${var.network_config.bootstrap_bucket_name}-${random_id.bucket_suffix.hex}"
+#   force_destroy = true
+#   # Tags are key-value pairs that you can attach to AWS resources.
+#   # They are useful for organizing and managing your resources.
+#   tags = {
+#     Name        = "${var.network_config.bootstrap_bucket_name}-${random_id.bucket_suffix.hex}"
+#     Environment = "Dev"
+#   }
+# }
 
-resource "random_id" "bucket_suffix" {
-  byte_length = 4
-}
+# resource "random_id" "bucket_suffix" {
+#   byte_length = 4
+# }
 
 # Controllers Module - No Provisioners, Self-Bootstrapping
 module "controllers" {
@@ -50,8 +50,8 @@ module "controllers" {
   var.iam_config.control_plane_role_name : "${var.core_config.project}-control-plane-role")
 
   # S3
-  bootstrap_bucket_name       = module.aws_infrastructure.bootstrap_bucket_name
-  bootstrap_bucket_dependency = aws_s3_bucket.bootstrap_bucket.bucket
+  bootstrap_bucket_name = module.aws_infrastructure.bootstrap_bucket_name
+  # bootstrap_bucket_dependency = aws_s3_bucket.bootstrap_bucket.bucket
 
   # SSH (still needed for troubleshooting, but not used by bootstrap process)
   ssh_key_name         = var.security_config.ssh_key_name
@@ -302,8 +302,8 @@ module "cpu_workers" {
   iam_policy_version = var.network_config.iam_policy_version
 
   # S3
-  bootstrap_bucket_name       = var.network_config.bootstrap_bucket_name
-  bootstrap_bucket_dependency = aws_s3_bucket.bootstrap_bucket.bucket
+  bootstrap_bucket_name = var.network_config.bootstrap_bucket_name
+  # bootstrap_bucket_dependency = aws_s3_bucket.bootstrap_bucket.bucket
   # SSH
   ssh_key_name = var.security_config.ssh_key_name
 
@@ -357,8 +357,8 @@ module "gpu_workers" {
   iam_policy_version = var.network_config.iam_policy_version
 
   # S3
-  bootstrap_bucket_name       = var.network_config.bootstrap_bucket_name
-  bootstrap_bucket_dependency = aws_s3_bucket.bootstrap_bucket.bucket
+  bootstrap_bucket_name = var.network_config.bootstrap_bucket_name
+  # bootstrap_bucket_dependency = aws_s3_bucket.bootstrap_bucket.bucket
 
   # SSH
   ssh_key_name = var.security_config.ssh_key_name

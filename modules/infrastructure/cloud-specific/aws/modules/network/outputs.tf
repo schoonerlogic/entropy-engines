@@ -70,23 +70,23 @@ output "public_route_table_ids" {
 }
 
 #===============================================================================
-# NAT Gateway Outputs (conditional)
+# NAT Gateway Outputs (from VPC module)
 #===============================================================================
 
 output "nat_gateway_ids" {
-  description = "List of NAT Gateway IDs (empty if NAT type is not 'gateway')"
-  value       = aws_nat_gateway.nat_gateway[*].id
+  description = "List of NAT Gateway IDs"
+  value       = module.vpc.natgw_ids
 }
 
 output "nat_gateway_public_ips" {
-  description = "List of public IP addresses for the NAT Gateways (empty if NAT type is not 'gateway')"
-  value       = aws_eip.nat_eip[*].public_ip
+  description = "List of public IP addresses for the NAT Gateways"
+  value       = module.vpc.nat_public_ips
 }
 
-output "nat_gateway_eip_allocation_ids" {
-  description = "List of EIP Allocation IDs for the NAT Gateways (empty if NAT type is not 'gateway')"
-  value       = aws_eip.nat_eip[*].id
-}
+# output "nat_gateway_eip_allocation_ids" {
+#   description = "List of EIP Allocation IDs for the NAT Gateways"
+#   value       = module.vpc.nat_eip_ids
+# }
 
 #===============================================================================
 # Bastion Host Outputs (conditional)

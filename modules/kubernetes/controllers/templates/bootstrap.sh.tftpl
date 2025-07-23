@@ -45,7 +45,7 @@ log_with_timestamp "Checking for existing admin.conf..."
 if [ -f /etc/kubernetes/admin.conf ]; then
     log_with_timestamp "kubeadm init already completed."
     # Regenerate join info just in case
-    log_with_timestamp "Ensuring join commands are generated..."
+    log_with_timestam "Ensuring join commands are generated..."
     sudo kubeadm token create --print-join-command > /tmp/kubeadm_join_worker.sh || log_with_timestamp "WARN: Failed to create token"
     sudo chmod +x /tmp/kubeadm_join_worker.sh || true
     sudo kubeadm init phase upload-certs --upload-certs > /tmp/kube_cert_key_unsafe.txt || log_with_timestamp "WARN: Failed to upload certs"

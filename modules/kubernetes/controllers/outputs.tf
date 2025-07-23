@@ -138,15 +138,19 @@ output "controller_config_summary" {
 #===============================================================================
 # Bootstrap Information
 #===============================================================================
+output "bootstrap_bucket" {
+  description = "S3 URI of the control plane bootstrap bucket"
+  value       = "s3://${var.bootstrap_bucket_name}"
+}
 
 output "bootstrap_script_s3_uri" {
   description = "S3 URI of the control plane bootstrap script"
-  value       = "s3://${var.bootstrap_bucket_name}/${aws_s3_object.controller_bootstrap_script.key}"
+  value       = "s3://${aws_s3_object.control_plane_setup_scripts["01-install_user_and_tooling"].bucket}/${aws_s3_object.control_plane_setup_scripts["01-install_user_and_tooling"].key}"
 }
 
 output "bootstrap_script_etag" {
   description = "ETag of the control plane bootstrap script in S3"
-  value       = aws_s3_object.controller_bootstrap_script.etag
+  value       = aws_s3_object.control_plane_setup_scripts["01-install_user_and_tooling"].etag
 }
 
 output "self_bootstrapping" {
