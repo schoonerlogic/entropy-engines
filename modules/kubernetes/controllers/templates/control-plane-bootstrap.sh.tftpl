@@ -23,7 +23,7 @@ echo "Bootstrap script started at $(date) in $(pwd)" # Add timestamp/context
 
 LOG_FILE="/var/log/control-node-bootstrap.log"
 
-touch $LOG_FIL ;E
+touch $LOG_FILE
 chmod 644 $LOG_FILE
 exec > >(tee -a $LOG_FILE) 2>&1
 
@@ -75,8 +75,10 @@ fi
 echo "$${TARGET_USER} ALL=(ALL) NOPASSWD:ALL" > "/etc/sudoers.d/$${TARGET_USER}" # Use > instead of | sudo tee
 chmod 440 "/etc/sudoers.d/$${TARGET_USER}"
 
-# Set up SSH key authentication from EC2 metadata
-SSH_PUBLIC_KEY=$(curl -fsSL http://169.254.169.254/latest/meta-data/public-keys/0/openssh-key || echo "Failed to fetch SSH key from metadata")
+# Set up SSH key authentication from EC2 metadata using IMDSv2
+TOKEN=$(curl -X PUT "http://169.254.169.254/latest/api/token" -H "X-aws-ec2-metadata-token-ttl-seconds: 21600")
+SSH_PUBLIC_KEY=$(curl -H "X-aws-ec2-metadata-token: $TOKEN" -fsSL http://169.254.169.254/latest/meta-data/public-keys/0/openssh-key || echo "Failed to fetch SSH key from metadata")
+
 if [[ -n "$SSH_PUBLIC_KEY" && "$SSH_PUBLIC_KEY" != "Failed to fetch"* ]]; then
     USER_SSH_DIR="/home/$${TARGET_USER}/.ssh"
     mkdir -p "$${USER_SSH_DIR}"

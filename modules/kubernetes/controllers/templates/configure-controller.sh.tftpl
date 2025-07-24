@@ -17,9 +17,9 @@ set -u
 set -o pipefail
 
 echo "DEBUG: The SSM join command path passed to this script is: '${ssm_join_command_path}'"
+
 # --- Setup Logging ---
 # Create a dedicated log directory and file for this provisioning script.
-# This makes debugging on the instance much easier.
 sudo mkdir -p /var/log/terraform-provisioning
 sudo chown "$(whoami):$(whoami)" /var/log/terraform-provisioning
 LOG_FILE="/var/log/terraform-provisioning/configure-controller-${node_index}.log"

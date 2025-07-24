@@ -2,7 +2,7 @@
 # Generated automatically by Terraform
 
 Host agentic-platform-k8s-bastion
-  HostName 54.211.81.253
+  HostName 34.229.81.26
   User ubuntu
   IdentityFile ~/.ssh/lw.pem
   ForwardAgent yes
@@ -12,8 +12,17 @@ Host agentic-platform-k8s-bastion
 
 
 Host agentic-platform-k8s-controller-0
-  HostName 10.0.101.10
-  User ubuntu
+  HostName 10.0.100.100
+  User steed
+  IdentityFile ~/.ssh/lw.pem
+  ProxyJump agentic-platform-k8s-bastion
+  StrictHostKeyChecking no
+  UserKnownHostsFile /dev/null
+
+
+Host agentic-platform-k8s-controller-1
+  HostName 10.0.102.182
+  User steed
   IdentityFile ~/.ssh/lw.pem
   ProxyJump agentic-platform-k8s-bastion
   StrictHostKeyChecking no
