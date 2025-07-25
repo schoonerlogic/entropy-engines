@@ -1,0 +1,200 @@
+#!/bin/bash
+# This script configures a Kubernetes controller node.
+
+set -euxo pipefail
+
+# Create a dedicated log directory and file for this provisioning script.
+sudo mkdir -p /var/log/terraform-provisioning
+sudo chown "$(whoami):$(whoami)" /var/log/terraform-provisioning
+LOG_FILE="/var/log/terraform-provisioning/configure-control-plane.log"
+touch "$LOG_FILE"
+
+log() {
+    echo "[$(date '+%Y-%m-%d %H:%M:%S')] $1" | tee -a "$LOG_FILE"
+}
+
+# --- Helper Functions ---
+handle_error() {
+  log "ERROR: $1"
+  exit 1
+}
+
+# --- Fetch Instance Metadata ---
+log "Fetching instance metadata using IMDSv2..."
+
+TOKEN=$(curl -X PUT "http://169.254.169.254/latest/api/token" -H "X-aws-ec2-metadata-token-ttl-seconds: 21600" -s --max-time 10) || handle_error "Failed to get IMDSv2 token"
+INSTANCE_IP=$(curl -H "X-aws-ec2-metadata-token: $TOKEN" -s --max-time 10 http://169.254.169.254/latest/meta-data/local-ipv4) || handle_error "Failed to get instance IP"
+INSTANCE_REGION=$(curl -H "X-aws-ec2-metadata-token: $TOKEN" -s --max-time 10 http://169.254.169.254/latest/dynamic/instance-identity/document | jq -r .region) || handle_error "Failed to get instance region"
+
+log "Instance IP: $INSTANCE_IP"
+log "Instance Region: $INSTANCE_REGION"
+
+PRIMARY_PARAM="/k8s/${cluster_name}/primary-controller"
+log "PRIMARY_PARAM: $PRIMARY_PARAM"
+
+log "=== Check of Primary Controller ==="
+if aws ssm put-parameter --name "$$PRIMARY_PARAM" --value "$$INSTANCE_IP" --type "String" --condition-expression "attribute_not_exists(Value)" --region "$$INSTANCE_REGION"; then
+    log "Successfully claimed primary role"
+    K8S_ROLE="primary"
+else
+    log "Primary already exists, becoming secondary"
+    K8S_ROLE="secondary"
+fi
+
+log "================================================="
+log "=== K8s Controller Configuration Starting ==="
+log "    Run started at: $(date)"
+log "    Node Index: ${node_index}"
+log "    K8S_ROLE: $K8S_ROLE"
+log "================================================="
+
+# --- Dependency Installation ---
+log "Checking for required dependencies..."
+if ! command -v jq &> /dev/null; then
+  log "jq not found. Installing..."
+  sudo apt-get update && sudo apt-get install -y jq || handle_error "Failed to install jq"
+fi
+
+if ! command -v aws &> /dev/null; then
+  log "AWS CLI not found. Installing..."
+  curl "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o "awscliv2.zip" || handle_error "Failed to download AWS CLI"
+  unzip awscliv2.zip || handle_error "Failed to unzip AWS CLI"
+  sudo ./aws/install || handle_error "Failed to install AWS CLI"
+fi
+log "Dependencies are present."
+
+
+# ==============================================================================
+# --- MAIN LOGIC: Differentiate between Primary and Secondary Controllers ---
+# ==============================================================================
+if [ "$K8S_ROLE" = "primary" ]; then
+    log "This is the PRIMARY controller. Starting initialization."
+
+    # --- Prepare Kubeadm Config ---
+    log "Generating kubeadm config..."
+    cat > /tmp/kubeadm-config-rendered.yaml << EOF
+      apiVersion: kubeadm.k8s.io/v1beta3
+      kind: InitConfiguration
+      nodeRegistration:
+        kubeletExtraArgs: {}
+      ---
+      apiVersion: kubeadm.k8s.io/v1beta3
+      kind: ClusterConfiguration
+      kubernetesVersion: v${k8s_full_patch_version}
+      controlPlaneEndpoint: "INSTANCE_IP:6443"
+      apiServer:
+        certSANs:
+        - "$INSTANCE_IP"
+        - "kubernetes"
+        - "kubernetes.default"
+        - "kubernetes.default.svc"
+        - "kubernetes.default.svc.cluster.local"
+        - "localhost"
+        - "127.0.0.1"
+      networking:
+        podSubnet: ${pod_cidr_block}
+        serviceSubnet: ${service_cidr_block}
+EOF
+   
+    sudo mkdir -p /etc/kubeadm
+    sudo mv /tmp/kubeadm-config-rendered.yaml /etc/kubeadm/kubeadm-config.yaml
+    sudo chown root:root /etc/kubeadm/kubeadm-config.yaml
+
+    # --- Idempotent kubeadm init ---
+    if [ ! -f "/etc/kubernetes/admin.conf" ]; then
+        log "Running kubeadm reset just in case..."
+        sudo kubeadm reset -f || log "kubeadm reset failed or nothing to reset, proceeding."
+        
+        log "Starting kubeadm init..."
+        sudo kubeadm init --config /etc/kubeadm/kubeadm-config.yaml --upload-certs --v=5 || handle_error "FATAL: kubeadm init failed"
+    fi
+    log "✅ Control plane is initialized."
+    
+    # --- Generate Join Information ---
+    log "Generating cluster join information..."
+    export KUBECONFIG=/etc/kubernetes/admin.conf
+    
+    WORKER_JOIN_CMD=$(sudo kubeadm token create --print-join-command) || handle_error "Failed to create worker join command"
+    CERTIFICATE_KEY=$(sudo kubeadm init phase upload-certs --upload-certs | tail -n 1) || handle_error "Failed to create certificate key"
+
+    # --- Upload to SSM ---
+    log "Uploading join information to SSM..."
+    aws ssm put-parameter --name "${ssm_join_command_path}" --value "$WORKER_JOIN_CMD" --type "SecureString" --overwrite --region "$INSTANCE_REGION"
+    aws ssm put-parameter --name "${ssm_certificate_key_path}" --value "$CERTIFICATE_KEY" --type "SecureString" --overwrite --region "$INSTANCE_REGION"
+
+    log "✅ Primary controller bootstrap completed!"
+else 
+# -------------------------------------------------------
+#        === SECONDARY CONTROLLER LOGIC ===
+# -------------------------------------------------------
+  log "This is a SECONDARY controller (index ${node_index}). Starting join process."
+
+  TIMEOUT=600 # 10 minutes
+  INTERVAL=15
+  ELAPSED=0
+  while true; do
+      JOIN_COMMAND=$(aws ssm get-parameter --name "${ssm_join_command_path}" --with-decryption --query Parameter.Value --output text --region "$INSTANCE_REGION" 2>/dev/null)
+      CERTIFICATE_KEY=$(aws ssm get-parameter --name "${ssm_certificate_key_path}" --with-decryption --query Parameter.Value --output text --region "$INSTANCE_REGION" 2>/dev/null)
+      
+      if [[ -n "$JOIN_COMMAND" && -n "$CERTIFICATE_KEY" ]]; then
+          log "Successfully fetched join information from SSM."
+          break
+      fi
+      if [ $ELAPSED -ge $TIMEOUT ]; then
+          handle_error "Timeout waiting for join parameters from SSM. Did the primary controller fail?"
+      fi
+      log "Waiting for join info... ($ELAPSED/$TIMEOUT seconds)"
+      sleep $INTERVAL
+      ELAPSED=$((ELAPSED + INTERVAL))
+  done
+
+  JOIN_ARGS=$(echo "$JOIN_COMMAND" | sed 's/kubeadm join //')
+
+# Check for existing kubelet.conf to ensure idempotency
+      if sudo test -f /etc/kubernetes/kubelet.conf; then
+          log "Node already appears to be part of a cluster. Exiting successfully."
+          exit 0
+      fi
+
+# Check if this node is already part of a cluster to ensure idempotency.
+  if sudo test -f /etc/kubernetes/kubelet.conf; then
+    log "Node already appears to be part of a cluster. Exiting successfully."
+    exit 0
+  fi
+
+# Fetch the join command and certificate key from AWS SSM Parameter Store.
+# These should have been uploaded by the primary controller after it initialized.
+  log "Fetching join information from SSM Parameter Store..."
+# Validate that the fetched values are not empty or null.
+  if [ -z "$JOIN_COMMAND" ] || [ "$JOIN_COMMAND" = "None" ]; then
+    handle_error "join command from SSM is empty or None. Did the primary controller fail to upload it?"
+  fi
+  if [ -z "$CERTIFICATE_KEY" ] || [ "$CERTIFICATE_KEY" = "None" ]; then
+    handle_error "Certificate key from SSM is empty or None. Did the primary controller fail to upload it?"
+  fi
+  log "Successfully retrieved join information from SSM."
+
+# Wait for essential services on this node to be ready before attempting to join.
+  log "Waiting for containerd service to be active..."
+  timeout 300 bash -c 'until sudo systemctl is-active containerd >/dev/null 2>&1; do log "Waiting for containerd..."; sleep 10; done' || handle_error "Containerd service did not become active in time."
+  log "Containerd is active."
+
+# Perform the join operation.
+  log "Running 'kubeadm join' to add this node to the control plane..."
+  log "Command: sudo kubeadm join $JOIN_ARGS --control-plane --certificate-key [REDACTED] --v=5"
+  if sudo kubeadm join $JOIN_ARGS --control-plane --certificate-key "$CERTIFICATE_KEY" --v=5; then
+    log "Successfully joined the control plane!"
+  else
+    handle_error "'kubeadm join' command failed. Check the logs above for details."
+  fi
+
+# Final verification step.
+  log "Verifying join by checking for /etc/kubernetes/admin.conf..."
+  if sudo test -f /etc/kubernetes/admin.conf; then
+    log "admin.conf found - join appears successful."
+  else
+    # This is a non-fatal warning as sometimes config isn't created on join nodes.
+    log "WARNING: /etc/kubernetes/admin.conf not found after join, but kubelet.conf should exist."
+  fi
+
+fi

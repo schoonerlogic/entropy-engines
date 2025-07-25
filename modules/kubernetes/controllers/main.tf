@@ -82,12 +82,30 @@ data "aws_region" "current" {}
 locals {
   # Define each script, its template, and its specific variables
   control_plane_scripts = {
-    "01-install_user_and_tooling" = {
-      template_path = "${path.module}/templates/control-plane-bootstrap.sh.tftpl"
+    "01-install-user-and-tooling" = {
+      template_path = "${path.module}/templates/install-user-and-tooling.sh.tftpl"
       vars = {
         k8s_user                   = local.k8s_user
         k8s_major_minor_stream     = local.k8s_major_minor_stream
         k8s_package_version_string = local.k8s_package_version_string
+      }
+    },
+    "02-configure-control-plane" = {
+      template_path = "${path.module}/templates/configure-control-plane.sh.tftpl"
+      vars = {
+        node_index               = 0 # revisit for multiple control plane nodes
+        cluster_name             = local.cluster_name
+        k8s_full_patch_version   = local.k8s_full_patch_version
+        pod_cidr_block           = local.pod_cidr_block
+        service_cidr_block       = local.service_cidr_block
+        ssm_join_command_path    = local.ssm_join_command_path
+        ssm_certificate_key_path = local.ssm_certificate_key_path
+      }
+    },
+    "03-k8s-controller-setup" = {
+      template_path = "${path.module}/templates/k8s-controller-setup.sh.tftpl",
+      vars = {
+        k8s_user = local.k8s_user
       }
     },
   }
@@ -110,7 +128,6 @@ resource "aws_s3_object" "control_plane_setup_scripts" {
 
   # depends_on = [var.bootstrap_bucket_dependency]
 }
-
 
 #===============================================================================
 # IAM Instance Profile

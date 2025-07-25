@@ -1,6 +1,16 @@
 #!/bin/bash
+#oi
 
 set -euxo pipefail 
+
+wait_for_apt_lock() {
+    echo "Waiting for apt lock to be released..."
+    while fuser /var/lib/dpkg/lock-frontend >/dev/null 2>&1 || fuser /var/lib/apt/lists/lock >/dev/null 2>&1; do
+        echo "Apt is locked by another process. Waiting 10 seconds..."
+        sleep 10
+    done
+    echo "Apt lock released, proceeding..."
+}
 
 # --- Wait for network to be ready ---
 echo "Waiting for network readiness..."
@@ -19,14 +29,13 @@ if ! ping -c 1 8.8.8.8 &>/dev/null; then
     exit 1
 fi
 
-echo "Bootstrap script started at $(date) in $(pwd)" # Add timestamp/context
-
-LOG_FILE="/var/log/control-node-bootstrap.log"
+LOG_FILE="/var/log/install-user-and-tooling.log"
 
 touch $LOG_FILE
 chmod 644 $LOG_FILE
 exec > >(tee -a $LOG_FILE) 2>&1
 
+echo "Install user/tooling script started at $(date) in $(pwd)" # Add timestamp/context
 
 # --- Configuration Variables (Passed from Terraform Templatefile) ---
 # Ensure these are provided by your templatefile data source's 'vars' map
@@ -76,7 +85,7 @@ echo "$${TARGET_USER} ALL=(ALL) NOPASSWD:ALL" > "/etc/sudoers.d/$${TARGET_USER}"
 chmod 440 "/etc/sudoers.d/$${TARGET_USER}"
 
 # Set up SSH key authentication from EC2 metadata using IMDSv2
-TOKEN=$(curl -X PUT "http://169.254.169.254/latest/api/token" -H "X-aws-ec2-metadata-token-ttl-seconds: 21600")
+# TOKEN=$(curl -X PUT "http://169.254.169.254/latest/api/token" -H "X-aws-ec2-metadata-token-ttl-seconds: 21600")
 SSH_PUBLIC_KEY=$(curl -H "X-aws-ec2-metadata-token: $TOKEN" -fsSL http://169.254.169.254/latest/meta-data/public-keys/0/openssh-key || echo "Failed to fetch SSH key from metadata")
 
 if [[ -n "$SSH_PUBLIC_KEY" && "$SSH_PUBLIC_KEY" != "Failed to fetch"* ]]; then
@@ -102,7 +111,7 @@ sed -i.bak '/ swap / s/^/#/' /etc/fstab # Added .bak for safety
 modprobe overlay
 modprobe br_netfilter
 echo -e "overlay\nbr_netfilter" > /etc/modules-load.d/k8s.conf # Use > instead of tee
-echo "net.ipv4.ip_forward = 1" | sudo tee /etc/sysctl.d/k8s.conf
+echo "net.ipv4.ip_forward = 1" | tee /etc/sysctl.d/k8s.conf
 
 # Configure sysctl params
 echo "net.bridge.bridge-nf-call-iptables = 1" > /etc/sysctl.d/k8s.conf # Added bridge setting often needed
@@ -111,6 +120,7 @@ sysctl --system # Reload sysctl settings
 
 # Install dependencies
 export DEBIAN_FRONTEND=noninteractive
+wait_for_apt_lock
 apt-get update
 apt-get install -y apt-transport-https ca-certificates curl gpg awscli jq
 
@@ -120,14 +130,12 @@ K8S_KEYRING_FILE="$${K8S_KEYRING_DIR}/kubernetes-apt-keyring.gpg"
 K8S_REPO_FILE="/etc/apt/sources.list.d/kubernetes.list"
 
 echo "Setting up Kubernetes APT repository for stream v$${K8S_REPO_STREAM} ...."
-sudo mkdir -p "$${K8S_KEYRING_DIR}"
-sudo curl -fsSL "https://pkgs.k8s.io/core:/stable:/v$${K8S_REPO_STREAM}/deb/Release.key" | sudo gpg --dearmor -o "$${K8S_KEYRING_FILE}" || { echo "Failed to download k8s gpg key for stream v$${K8S_REPO_STREAM}"; exit 1; }
-echo "deb [signed-by=$${K8S_KEYRING_FILE}] https://pkgs.k8s.io/core:/stable:/v$${K8S_REPO_STREAM}/deb/ /" | sudo tee "$${K8S_REPO_FILE}" > /dev/null || { echo "Failed to write k8s repo file"; exit 1; }
-
-sudo apt-get update
+mkdir -p "$${K8S_KEYRING_DIR}"
+curl -fsSL "https://pkgs.k8s.io/core:/stable:/v$${K8S_REPO_STREAM}/deb/Release.key" | gpg --dearmor -o "$${K8S_KEYRING_FILE}" || { echo "Failed to download k8s gpg key for stream v$${K8S_REPO_STREAM}"; exit 1; }
+echo "deb [signed-by=$${K8S_KEYRING_FILE}] https://pkgs.k8s.io/core:/stable:/v$${K8S_REPO_STREAM}/deb/ /" |  tee "$${K8S_REPO_FILE}" > /dev/null || { echo "Failed to write k8s repo file"; exit 1; }
 
 echo "Installing Kubernetes packages: kubelet=$${K8S_PKG_VERSION_STRING}, kubeadm=$${K8S_PKG_VERSION_STRING}, kubectl=$${K8S_PKG_VERSION_STRING}"
-sudo apt-get install -y \
+apt-get install -y \
   kubelet="$${K8S_PKG_VERSION_STRING}" \
   kubeadm="$${K8S_PKG_VERSION_STRING}" \
   kubectl="$${K8S_PKG_VERSION_STRING}" || {
@@ -147,35 +155,32 @@ CONTAINERD_REPO_FILE="/etc/apt/sources.list.d/docker.list"
 curl -fsSL https://download.docker.com/linux/ubuntu/gpg | gpg --dearmor -o "$${CONTAINERD_KEYRING_FILE}" || { echo "Failed to download docker/containerd gpg key"; exit 1; }
 echo "deb [arch=$(dpkg --print-architecture) signed-by=$${CONTAINERD_KEYRING_FILE}] https://download.docker.com/linux/ubuntu $(lsb_release -cs) stable" > "$${CONTAINERD_REPO_FILE}" || { echo "Failed to write containerd repo file"; exit 1; }
 
-apt-get update
 apt-get install -y containerd.io
-
-
 echo "Configuring containerd for Kubernetes..."
 
 # Ensure the config directory exists
-sudo mkdir -p /etc/containerd
+mkdir -p /etc/containerd
 
 # Generate default config and save it
 echo "Generating default containerd config -> /etc/containerd/config.toml"
-sudo bash -c 'containerd config default > /etc/containerd/config.toml'
+bash -c 'containerd config default > /etc/containerd/config.toml'
 
 # 1. Comment out the 'disabled_plugins = ["cri"]' line using sed
 echo "Ensuring CRI plugin is NOT disabled in containerd config..."
 # This sed command finds the exact line and puts a '#' at the beginning
-sudo sed -i 's/^disabled_plugins = \["cri"\]/#disabled_plugins = ["cri"]/' /etc/containerd/config.toml
+sed -i 's/^disabled_plugins = \["cri"\]/#disabled_plugins = ["cri"]/' /etc/containerd/config.toml
 
 # 2. Modify the config to enable SystemdCgroup (keep this from before)
 echo "Enabling SystemdCgroup in containerd config..."
-sudo sed -i 's/SystemdCgroup = false/SystemdCgroup = true/' /etc/containerd/config.toml
+sed -i 's/SystemdCgroup = false/SystemdCgroup = true/' /etc/containerd/config.toml
 
 # Restart containerd to apply changes
 echo "Restarting containerd service..."
-sudo systemctl restart containerd
+systemctl restart containerd
 
 # Ensure containerd service is enabled on boot
 echo "Enabling containerd service..."
-sudo systemctl enable containerd
+systemctl enable containerd
 
 # Optional: Brief wait/check for socket
 echo "Waiting briefly for containerd socket..."

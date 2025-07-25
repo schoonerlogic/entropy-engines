@@ -28,6 +28,7 @@ fi
 echo "--- Downloading all k8s setup scripts from S3 ---"
 aws s3 cp "s3://$${S3_SCRIPTS_BUCKET}/scripts/" "$${DOWNLOAD_DIR}" --recursive
 
+
 echo "--- Executing scripts in numerical order ---"
 for script in $(find "$${DOWNLOAD_DIR}" -name '*.sh' | sort); do
   echo ">>> Running $${script}"

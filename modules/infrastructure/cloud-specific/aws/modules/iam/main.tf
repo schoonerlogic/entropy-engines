@@ -103,7 +103,7 @@ resource "aws_iam_instance_profile" "control_plane_instance_profile" {
 
 # Control plane specific permissions
 data "aws_iam_policy_document" "control_plane_policy" {
-  # EC2 permissions for managing instances and networking
+  # ec2 permissions for managing instances and networking
   statement {
     effect = "Allow"
     actions = [
@@ -132,7 +132,7 @@ data "aws_iam_policy_document" "control_plane_policy" {
     resources = ["*"]
   }
 
-  # S3 permissions for bootstrap and backups
+  # s3 permissions for bootstrap and backups
   statement {
     effect = "Allow"
     actions = [
@@ -145,6 +145,19 @@ data "aws_iam_policy_document" "control_plane_policy" {
       "arn:aws:s3:::${var.bootstrap_bucket_name}",
       "arn:aws:s3:::${var.bootstrap_bucket_name}/*"
     ]
+  }
+
+  # SSM Parameter Store permissions
+  statement {
+    effect = "Allow"
+    actions = [
+      "ssm:PutParameter",
+      "ssm:GetParameter",
+      "ssm:GetParameters",
+      "ssm:DescribeParameters",
+      "ssm:DeleteParameter"
+    ]
+    resources = ["*"]
   }
 
   # Auto Scaling permissions
