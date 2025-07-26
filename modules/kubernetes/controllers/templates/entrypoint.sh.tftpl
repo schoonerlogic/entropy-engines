@@ -5,10 +5,38 @@ S3_SCRIPTS_BUCKET="${s3_bucket_name}"
 DOWNLOAD_DIR="/tmp/k8s-scripts"
 mkdir -p "$${DOWNLOAD_DIR}"
 
+# --- Wait for network to be ready ---
+echo "Waiting for network readiness..."
+for i in {1..10}; do
+    if ping -c 1 8.8.8.8 &>/dev/null; then
+        echo "Network is ready."
+        break
+    fi
+    echo "Network not ready yet (attempt $i), waiting 5 seconds..."
+    sleep 5
+done
+
+# If the loop finished without success, exit
+if ! ping -c 1 8.8.8.8 &>/dev/null; then
+    echo "FATAL: Network failed to become ready after multiple attempts."
+    exit 1
+fi
+
+wait_for_apt_lock() {
+    echo "Waiting for apt lock to be released..."
+    while fuser /var/lib/dpkg/lock-frontend >/dev/null 2>&1 || fuser /var/lib/apt/lists/lock >/dev/null 2>&1; do
+        echo "Apt is locked by another process. Waiting 10 seconds..."
+        sleep 10
+    done
+    echo "Apt lock released, proceeding..."
+}
+
+
 if ! command -v aws &> /dev/null; then
     echo "AWS CLI not found. Installing AWS CLI v2..."
 
     # Ensure dependencies are present
+    wait_for_apt_lock
     apt-get update -y
     apt-get install -y --no-install-recommends curl unzip
 
