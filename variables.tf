@@ -33,7 +33,7 @@ variable "network_config" {
     })
 
     cluster_dns_ip       = optional(string, "10.244.0.0/16")
-    availability_zones   = optional(list(ssetring), null) # Will use data source if null
+    availability_zones   = optional(list(string), null) # Will use data source if null
     public_subnet_count  = optional(number, 2)
     private_subnet_count = optional(number, 4)
     subnet_ids           = list(string)
