@@ -21,8 +21,6 @@ variable "core_config" {
 variable "network_config" {
   description = "Network configuration settings"
   type = object({
-    base_aws_ami          = optional(string, null)
-    gpu_aws_ami           = optional(string, null) # Separate GPU AMI with NVIDIA drivers
     bootstrap_bucket_name = optional(string, "k8s-worker-bootstrap-bucket")
     vpc_cidr              = optional(string, "10.0.0.0/16")
 
@@ -35,7 +33,7 @@ variable "network_config" {
     })
 
     cluster_dns_ip       = optional(string, "10.244.0.0/16")
-    availability_zones   = optional(list(string), null) # Will use data source if null
+    availability_zones   = optional(list(ssetring), null) # Will use data source if null
     public_subnet_count  = optional(number, 2)
     private_subnet_count = optional(number, 4)
     subnet_ids           = list(string)

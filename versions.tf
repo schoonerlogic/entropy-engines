@@ -1,4 +1,5 @@
-# Terraform and Provider Version Requirements
+# Terraform and Provider Version Requirements :q!
+#
 terraform {
   required_version = ">= 1.0.0"
 
@@ -13,3 +14,4 @@ terraform {
     }
   }
 }
+

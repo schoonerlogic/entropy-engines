@@ -171,28 +171,6 @@ variable "enable_gpu_nodes" {
   default     = true
 }
 
-#===============================================================================
-# Instance Configuration Variables
-#===============================================================================
-
-variable "ubuntu_codename" {
-  description = "Ubuntu codename for AMI selection"
-  type        = string
-  default     = "jammy" # jammy=22.04, focal=20.04
-}
-
-variable "ubuntu_version" {
-  description = "Ubuntu version for AMI selection"
-  type        = string
-  default     = "22.04"
-}
-
-variable "instance_ami_architecture" {
-  description = "Architecture for AMI selection (arm64 or x86_64)"
-  type        = string
-  default     = "arm64"
-}
-
 variable "enable_volume_encryption" {
   description = "Enable encryption for EBS volumes"
   type        = bool
@@ -229,4 +207,9 @@ variable "bastion_allowed_ssh_cidrs" {
   description = "Legacy CIDR blocks allowed for bastion host access (deprecated, use bastion_allowed_cidrs)"
   type        = list(string)
   default     = []
+}
+
+variable "base_aws_ami" {
+  description = "ID for the base aws image created at root leve"
+  type        = string
 }

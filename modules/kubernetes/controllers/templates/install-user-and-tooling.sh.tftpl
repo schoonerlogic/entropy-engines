@@ -117,7 +117,9 @@ sysctl --system # Reload sysctl settings
 export DEBIAN_FRONTEND=noninteractive
 wait_for_apt_lock
 apt-get update
-apt-get install -y apt-transport-https ca-certificates curl gpg awscli jq
+   
+wait_for_apt_lock
+apt-get install -y apt-transport-https ca-certificates curl gpg jq
 
 # Create keyring directory and download the GPG key
 echo "Setting up Kubernetes APT repository for stream v$K8S_REPO_STREAM ...."
@@ -131,7 +133,9 @@ echo "deb [signed-by=$K8S_KEYRING_FILE] https://pkgs.k8s.io/core:/stable:/v$K8S_
 
 # Update APT and install Kubernetes packages
 echo "Installing Kubernetes packages: kubelet=$K8S_PKG_VERSION_STRING, kubeadm=$K8S_PKG_VERSION_STRING, kubectl=$K8S_PKG_VERSION_STRING"
+wait_for_apt_lock
 sudo apt-get update
+
 if ! sudo apt-get install -y \
   kubelet="$K8S_PKG_VERSION_STRING" \
   kubeadm="$K8S_PKG_VERSION_STRING" \
@@ -144,50 +148,51 @@ fi
 
 apt-mark hold kubelet kubeadm kubectl
 
-# Install and configure containerd
-CONTAINERD_KEYRING_DIR="/usr/share/keyrings"
-CONTAINERD_KEYRING_FILE="$${CONTAINERD_KEYRING_DIR}/docker-archive-keyring.gpg"
-CONTAINERD_REPO_FILE="/etc/apt/sources.list.d/docker.list"
-
-curl -fsSL https://download.docker.com/linux/ubuntu/gpg | gpg --dearmor -o "$${CONTAINERD_KEYRING_FILE}" || { echo "Failed to download docker/containerd gpg key"; exit 1; }
-echo "deb [arch=$(dpkg --print-architecture) signed-by=$${CONTAINERD_KEYRING_FILE}] https://download.docker.com/linux/ubuntu $(lsb_release -cs) stable" > "$${CONTAINERD_REPO_FILE}" || { echo "Failed to write containerd repo file"; exit 1; }
-
-apt-get install -y containerd.io
+wait_for_apt_lock
+apt-get install -y containerd
 echo "Configuring containerd for Kubernetes..."
 
-# Ensure the config directory exists
+# 1. Create containerd config directory (if not exists)
 mkdir -p /etc/containerd
 
-# Generate default config and save it
-echo "Generating default containerd config -> /etc/containerd/config.toml"
-bash -c 'containerd config default > /etc/containerd/config.toml'
-
-# 1. Comment out the 'disabled_plugins = ["cri"]' line using sed
-echo "Ensuring CRI plugin is NOT disabled in containerd config..."
-# This sed command finds the exact line and puts a '#' at the beginning
-sed -i 's/^disabled_plugins = \["cri"\]/#disabled_plugins = ["cri"]/' /etc/containerd/config.toml
-
-# 2. Modify the config to enable SystemdCgroup (keep this from before)
-echo "Enabling SystemdCgroup in containerd config..."
-sed -i 's/SystemdCgroup = false/SystemdCgroup = true/' /etc/containerd/config.toml
-
-# Restart containerd to apply changes
-echo "Restarting containerd service..."
-systemctl restart containerd
-
-# Ensure containerd service is enabled on boot
-echo "Enabling containerd service..."
-systemctl enable containerd
-
-# Optional: Brief wait/check for socket
-echo "Waiting briefly for containerd socket..."
-sleep 5
-if [ ! -S /var/run/containerd/containerd.sock ]; then
-  warn "WARNING: containerd socket not found after restart!"
+# 2. Generate #efault config ONLY if it doesn't exist (prevent overwriting customizations)
+if [ ! -f /etc/containerd/config.toml ]; then
+    echo "Generating default containerd config..."
+    containerd config default > /etc/containerd/config.toml || {
+        echo "Failed to generate default config";
+        exit 1;
+    }
+else
+    echo "Existing config.toml found - preserving it."
 fi
 
-echo "Containerd configured and restarted."
-# --- End containerd configuration section ---
+# 3. CRI Plugin Check (modern containerd versions don't disable CRI by default)
+if grep -q 'disabled_plugins.*cri' /etc/containerd/config.toml; then
+    echo "Disabling CRI plugin override..."
+    sed -i 's/^disabled_plugins = \["cri"\]/#disabled_plugins = ["cri"]/' /etc/containerd/config.toml
+else
+    echo "CRI plugin already enabled (no action needed)"
+fi
+
+# 4. Systemd Cgroup (critical for Kubernetes)
+echo "Enabling SystemdCgroup..."
+sed -i 's/SystemdCgroup \= false/SystemdCgroup \= true/' /etc/containerd/config.toml
+
+# 5. Restart with checks
+echo "Restarting containerd..."
+systemctl restart containerd || {
+    echo "Containerd restart failed! Debug with: journalctl -u containerd";
+    exit 1;
+}
+
+# 6. Verify runtime is operational
+timeout 10 bash -c 'until ctr version >/dev/null 2>&1; do sleep 1; done' || {
+    echo "Containerd did not start properly!";
+    ctr version  # Explicitly call to show error
+    exit 1;
+}
+
+echo "Containerd configured successfully!"
 
 echo "-----------------------------------------------------"
 echo "Kubernetes control plane setup completed successfully!"

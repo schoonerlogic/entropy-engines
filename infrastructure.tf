@@ -1,5 +1,6 @@
 # Cloud-Agnostic Infrastructure Configuration
 # This file orchestrates the deployment of self-managed Kubernetes across clouds
+
 locals {
   common_tags = {
     Project     = "AgenticPlatform"
@@ -10,13 +11,37 @@ locals {
 
 
 # Data source for Ubuntu AMI (used by spot-enabled modules)
+# data "aws_ami" "ubuntu" {
+#   most_recent = true
+#   owners      = ["099720109477"] # Canonical
+#
+#   filter {
+#     name   = "name"
+#     values = ["ubuntu/images/hvm-ssd/ubuntu-jammy-22.04-arm64-server-*"]
+#   }
+#
+#   filter {
+#     name   = "virtualization-type"
+#     values = ["hvm"]
+#   }
+# }
+#
+
 data "aws_ami" "ubuntu" {
   most_recent = true
   owners      = ["099720109477"] # Canonical
 
   filter {
-    name   = "name"
-    values = ["ubuntu/images/hvm-ssd/ubuntu-jammy-22.04-arm64-server-*"]
+    name = "name"
+    # More flexible wildcard matching (covers minor naming variations)
+    values = [
+      "ubuntu/images/hvm-ssd-gp3/ubuntu-noble-24.04-arm64-server-*",
+    ]
+  }
+
+  filter {
+    name   = "architecture"
+    values = ["arm64"]
   }
 
   filter {
@@ -41,8 +66,8 @@ module "aws_infrastructure" {
   gpu_worker_role_name    = var.iam_config.gpu_worker_role_name
 
   # Network configuration
-  base_aws_ami          = var.network_config.base_aws_ami
-  gpu_aws_ami           = var.network_config.gpu_aws_ami
+  base_aws_ami = data.aws_ami.ubuntu.id
+  #  gpu_aws_ami           = var.network_config.gpu_aws_ami
   bootstrap_bucket_name = var.network_config.bootstrap_bucket_name
   vpc_cidr              = var.network_config.vpc_cidr
   kubernetes_cidrs      = var.network_config.kubernetes_cidrs

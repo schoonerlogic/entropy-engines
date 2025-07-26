@@ -53,18 +53,6 @@ variable "gpu_worker_role_name" {
 #===============================================================================
 # Network Configuration Variables
 #===============================================================================
-
-variable "base_aws_ami" {
-  description = "Base AWS AMI ID"
-  type        = string
-}
-
-variable "gpu_aws_ami" {
-  description = "GPU-enabled AWS AMI ID"
-  type        = string
-  default     = null
-}
-
 variable "bootstrap_bucket_name" {
   description = "S3 bucket name for worker bootstrap"
   type        = string
@@ -283,4 +271,9 @@ variable "enable_vpc_endpoints" {
   description = "Enable VPC endpoints for cost optimization"
   type        = bool
   default     = true
+}
+
+variable "base_aws_ami" {
+  description = "ID for the base aws image created at root leve"
+  type        = string
 }

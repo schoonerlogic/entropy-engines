@@ -31,7 +31,8 @@ module "controllers" {
   on_demand_count = var.k8s_control_plane_config.on_demand_count
   spot_count      = var.k8s_control_plane_config.spot_count
   instance_types  = [var.k8s_control_plane_config.instance_type]
-  base_aws_ami    = module.aws_infrastructure.base_aws_ami.id
+
+  base_aws_ami = data.aws_ami.ubuntu.id
 
   # Kubernetes configuration
   k8s_user               = var.kubernetes_config.k8s_user
@@ -81,7 +82,10 @@ module "controllers" {
     Criticality  = "high"
     BackupPolicy = "daily"
   }
+
+  depends_on = [data.aws_ami.ubuntu]
 }
+
 locals {
   # Derived values
   cluster_name = var.kubernetes_config.cluster_name != null ? var.kubernetes_config.cluster_name : var.core_config.project
@@ -139,7 +143,7 @@ locals {
     )
 
     # AMI selection
-    ami_id = module.aws_infrastructure.base_aws_ami.id
+    base_aws_ami = data.aws_ami.ubuntu.id
 
     # Worker role
     worker_role_name = coalesce(
@@ -243,7 +247,7 @@ locals {
     var.worker_config.storage_config.block_device_mappings)
 
     # AMI selection (use GPU AMI if provided, otherwise base AMI)
-    ami_id = module.aws_infrastructure.base_gpu_ami.id
+    base_aws_ami = data.aws_ami.ubuntu.id
 
     # Worker role (can be different for GPU workers)
     worker_role_name = coalesce(
@@ -286,7 +290,7 @@ module "cpu_workers" {
   instance_requirements     = local.cpu_worker_config.instance_requirements
   on_demand_count           = local.cpu_worker_config.on_demand_count
   spot_count                = local.cpu_worker_config.spot_count
-  base_aws_ami              = local.cpu_worker_config.ami_id
+  base_aws_ami              = data.aws_ami.ubuntu.id
 
   # Kubernetes config (from original variables)
   k8s_user               = var.kubernetes_config.k8s_user
@@ -342,7 +346,7 @@ module "gpu_workers" {
   instance_requirements     = local.gpu_worker_config.instance_requirements
   on_demand_count           = local.gpu_worker_config.on_demand_count
   spot_count                = local.gpu_worker_config.spot_count
-  base_gpu_ami              = local.gpu_worker_config.ami_id
+  base_gpu_ami              = data.aws_ami.ubuntu.id
   # Kubernetes config
   k8s_user               = var.kubernetes_config.k8s_user
   k8s_major_minor_stream = var.kubernetes_config.k8s_major_minor_stream

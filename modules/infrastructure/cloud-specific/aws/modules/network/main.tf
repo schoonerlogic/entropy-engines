@@ -30,7 +30,6 @@ locals {
     ClusterName                                   = local.cluster_name
     "kubernetes.io/cluster/${local.cluster_name}" = "owned"
     ManagedBy                                     = "Terraform"
-    Architecture                                  = var.instance_ami_architecture
     }, var.enable_kubernetes_tags ? {
     "kubernetes.io/role/elb"          = "1"
     "kubernetes.io/role/internal-elb" = "1"
@@ -91,27 +90,6 @@ module "vpc" {
   flow_log_max_aggregation_interval    = 60
 }
 
-# Data sources for AMI and AWS services
-data "aws_ami" "ubuntu" {
-  most_recent = true
-  owners      = ["099720109477"] # Canonical
-
-  filter {
-    name   = "name"
-    values = ["ubuntu/images/hvm-ssd/ubuntu-${var.ubuntu_codename}-${var.ubuntu_version}-${var.instance_ami_architecture}-server-*"]
-  }
-
-  filter {
-    name   = "architecture"
-    values = [var.instance_ami_architecture]
-  }
-
-  filter {
-    name   = "virtualization-type"
-    values = ["hvm"]
-  }
-}
-
 data "aws_ec2_managed_prefix_list" "s3" {
   name = "com.amazonaws.${var.region}.s3"
 }
@@ -120,7 +98,7 @@ data "aws_ec2_managed_prefix_list" "s3" {
 resource "aws_instance" "bastion" {
   count = var.enable_bastion_host ? 1 : 0
 
-  ami                         = data.aws_ami.ubuntu.id
+  ami                         = var.base_aws_ami
   instance_type               = var.bastion_type
   subnet_id                   = module.vpc.public_subnets[0]
   vpc_security_group_ids      = [aws_security_group.bastion_host.id]

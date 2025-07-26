@@ -2,15 +2,6 @@
 # Updated to handle conditional resources safely
 
 #===============================================================================
-# AMI Output
-#===============================================================================
-
-output "base_aws_ami" {
-  description = "Default operating system AMI"
-  value       = data.aws_ami.ubuntu
-}
-
-#===============================================================================
 # VPC Outputs (from terraform-aws-modules/vpc/aws)
 #===============================================================================
 

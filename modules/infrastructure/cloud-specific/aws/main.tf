@@ -1,20 +1,20 @@
-terraform {
-  required_providers {
-    aws = {
-      source  = "hashicorp/aws"
-      version = "~> 5.0" # Adding version constraint
-    }
-    local = {
-      source  = "hashicorp/local"
-      version = "~> 2.4" # Adding version constraint
-    }
-    random = {
-      source  = "hashicorp/random"
-      version = "~> 3.5" # Adding version constraint for random provider
-    }
-  }
-}
-
+# terraform {
+#   required_providers {
+#     aws = {
+#       source  = "hashicorp/aws"
+#       version = "~> 5.0" # Adding version constraint
+#     }
+#     local = {
+#       source  = "hashicorp/local"
+#       version = "~> 2.4" # Adding version constraint
+#     }
+#     random = {
+#       source  = "hashicorp/random"
+#       version = "~> 3.5" # Adding version constraint for random provider
+#     }
+#   }
+# }
+#
 # Extract values from individual variables for easier access
 locals {
   # Core values
@@ -48,10 +48,11 @@ module "network" {
   source = "./modules/network"
 
   # Core values
-  project     = local.project
-  vpc_name    = local.vpc_name
-  region      = local.aws_region
-  environment = local.environment
+  project      = local.project
+  vpc_name     = local.vpc_name
+  region       = local.aws_region
+  environment  = local.environment
+  base_aws_ami = var.base_aws_ami
 
   # Network configuration - pass individual values
   vpc_cidr             = var.vpc_cidr
