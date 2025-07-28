@@ -42,26 +42,27 @@ PRIMARY_PARAM="/k8s/${cluster_name}/primary-controller"
 EXISTING_PRIMARY=$(aws ssm get-parameter --name "$PRIMARY_PARAM" \
     --query Parameter.Value --output text 2>/dev/null || echo "UNASSIGNED")
 
-log "Attempting to claim primary with: aws ssm put-parameter --name $PRIMARY_PARAM --value $INSTANCE_IP --expected-value \"value=$EXISTING_PRIMARY\""
+log "=== Check of Primary Controller ==="
 
-# Get current primary status
-EXISTING_PRIMARY=$(aws ssm get-parameter --name "$PRIMARY_PARAM" \
-    --query Parameter.Value --output text 2>/dev/null || echo "UNASSIGNED")
+# Be carefule here, if you have an old SSM for 
+# /k8s/agentic-platform/primary-controller
+# then this check will not be correct
+if [[ "$EXISTING_PRIMARY" == "UNASSIGNED" || "$EXISTING_PRIMARY" == "None" ]]; then
+    # Attempt to claim it by setting the SSM parameter with conditional put
+    aws ssm put-parameter --name "$PRIMARY_PARAM" \
+        --value "$INSTANCE_IP" \
+        --type "String" \
+        --overwrite \
+        --region "$INSTANCE_REGION"
+    K8S_ROLE="primary"
+elif [[ "$EXISTING_PRIMARY" == "$INSTANCE_IP" ]]; then
+    # Already primary
+    K8S_ROLE="primary"
+else
+    K8S_ROLE="secondary"
+fi
 
-# Simple overwrite without conditions
-aws ssm put-parameter --name "${ssm_join_command_path}" \
-    --value "$JOIN_CMD" \
-    --type "SecureString" \
-    --overwrite \
-    --region "$INSTANCE_REGION" >/dev/null || log "Warning: Failed to update join command"
-
-aws ssm put-parameter --name "${ssm_certificate_key_path}" \
-    --value "$CERT_KEY" \
-    --type "SecureString" \
-    --overwrite \
-    --region "$INSTANCE_REGION" >/dev/null || log "Warning: Failed to update cert key"
-
-log "Controller Role: $K8S_ROLE, Instance IP: $INSTANCE_IP"
+log "Controller role resolved: $K8S_ROLE (Primary IP: $EXISTING_PRIMARY)"
 
 # --- Dependency Installation ---
 install_dependencies() {
@@ -81,7 +82,7 @@ install_dependencies
 # --- Main Control Plane Logic ---
 if [[ "$K8S_ROLE" == "primary" ]]; then
     # Generate kubeadm config with RUNTIME IP substitution
-    cat > /tmp/kubeadm-config.yaml <<"KUBEADM_EOF"
+    cat > /tmp/kubeadm-config.yaml <<KUBEADM_EOF
 apiVersion: kubeadm.k8s.io/v1beta3
 kind: InitConfiguration
 nodeRegistration:
@@ -91,10 +92,10 @@ nodeRegistration:
 apiVersion: kubeadm.k8s.io/v1beta3
 kind: ClusterConfiguration
 kubernetesVersion: ${k8s_full_patch_version}
-controlPlaneEndpoint: "$INSTANCE_IP:6443"
+controlPlaneEndpoint: $INSTANCE_IP:6443
 apiServer:
   certSANs:
-    - "$INSTANCE_IP"
+    - $INSTANCE_IP
     - "kubernetes"
     - "kubernetes.default"
     - "kubernetes.default.svc"
@@ -107,7 +108,7 @@ networking:
 KUBEADM_EOF
 
     # After generating the YAML
-    if ! grep -q "\"$INSTANCE_IP\"" /tmp/kubeadm-config.yaml; then
+    if ! grep -q "$INSTANCE_IP" /tmp/kubeadm-config.yaml; then
       echo "ERROR: IP substitution failed!" >&2
       exit 1
     fi
