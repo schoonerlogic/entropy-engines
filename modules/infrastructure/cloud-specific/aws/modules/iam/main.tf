@@ -142,8 +142,8 @@ data "aws_iam_policy_document" "control_plane_policy" {
       "s3:ListBucket"
     ]
     resources = [
-      "arn:aws:s3:::${var.bootstrap_bucket_name}",
-      "arn:aws:s3:::${var.bootstrap_bucket_name}/*"
+      "arn:aws:s3:::${var.k8s_scripts_bucket_name}",
+      "arn:aws:s3:::${var.k8s_scripts_bucket_name}/*"
     ]
   }
 
@@ -245,8 +245,8 @@ data "aws_iam_policy_document" "worker_policy" {
       "s3:ListBucket"
     ]
     resources = [
-      "arn:aws:s3:::${var.bootstrap_bucket_name}",
-      "arn:aws:s3:::${var.bootstrap_bucket_name}/*"
+      "arn:aws:s3:::${var.k8s_scripts_bucket_name}",
+      "arn:aws:s3:::${var.k8s_scripts_bucket_name}/*"
     ]
   }
 

@@ -53,8 +53,13 @@ variable "gpu_worker_role_name" {
 #===============================================================================
 # Network Configuration Variables
 #===============================================================================
-variable "bootstrap_bucket_name" {
+variable "k8s_scripts_bucket_name" {
   description = "S3 bucket name for worker bootstrap"
+  type        = string
+}
+
+variable "k8s_scripts_bucket_dependency" {
+  description = "S3 bucket for worker bootstrap"
   type        = string
 }
 

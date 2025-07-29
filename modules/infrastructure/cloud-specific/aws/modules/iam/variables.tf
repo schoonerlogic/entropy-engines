@@ -47,7 +47,8 @@ variable "cluster_name" {
   default     = null
 }
 
-variable "bootstrap_bucket_name" {
+variable "k8s_scripts_bucket_name" {
   description = "Name of the S3 bucket for bootstrap"
   type        = string
 }
+

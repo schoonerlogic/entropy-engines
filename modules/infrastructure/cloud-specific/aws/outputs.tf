@@ -194,12 +194,12 @@ output "cluster_dns_ip" {
 # S3 Bootstrap Bucket Outputs
 #===============================================================================
 
-output "bootstrap_bucket_name" {
+output "k8s_scripts_bucket_name" {
   description = "Name of the S3 bucket used for worker bootstrap"
-  value       = aws_s3_bucket.worker_s3_bootstrap_bucket.id
+  value       = aws_s3_bucket.k8s_scripts_bucket.id
 }
 
-output "bootstrap_bucket_arn" {
+output "k8s_scripts_bucket_arn" {
   description = "ARN of the S3 bucket used for worker bootstrap"
-  value       = aws_s3_bucket.worker_s3_bootstrap_bucket.arn
+  value       = aws_s3_bucket.k8s_scripts_bucket.arn
 }

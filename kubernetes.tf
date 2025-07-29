@@ -1,24 +1,5 @@
 # root - kubernetes.tf
 
-
-# resource "aws_s3_bucket" "bootstrap_bucket" {
-#   # The bucket name must be globally unique across all of AWS.
-#   # You should replace "my-unique-bucket-name-12345" with a name
-#   # that you choose.
-#   bucket        = "${var.network_config.bootstrap_bucket_name}-${random_id.bucket_suffix.hex}"
-#   force_destroy = true
-#   # Tags are key-value pairs that you can attach to AWS resources.
-#   # They are useful for organizing and managing your resources.
-#   tags = {
-#     Name        = "${var.network_config.bootstrap_bucket_name}-${random_id.bucket_suffix.hex}"
-#     Environment = "Dev"
-#   }
-# }
-
-# resource "random_id" "bucket_suffix" {
-#   byte_length = 4
-# }
-
 # Controllers Module - No Provisioners, Self-Bootstrapping
 module "controllers" {
   source = "./modules/kubernetes/controllers"
@@ -51,8 +32,8 @@ module "controllers" {
   var.iam_config.control_plane_role_name : "${var.core_config.project}-control-plane-role")
 
   # S3
-  bootstrap_bucket_name = module.aws_infrastructure.bootstrap_bucket_name
-  # bootstrap_bucket_dependency = aws_s3_bucket.bootstrap_bucket.bucket
+  k8s_scripts_bucket_name       = var.network_config.k8s_scripts_bucket_name
+  k8s_scripts_bucket_dependency = var.network_config.k8s_scripts_bucket_arn
 
   # SSH (still needed for troubleshooting, but not used by bootstrap process)
   ssh_key_name         = var.security_config.ssh_key_name
@@ -276,6 +257,7 @@ locals {
   }
 }
 
+
 # CPU Workers Module
 module "cpu_workers" {
   source = "./modules/kubernetes/cpu-workers"
@@ -291,11 +273,13 @@ module "cpu_workers" {
   on_demand_count           = local.cpu_worker_config.on_demand_count
   spot_count                = local.cpu_worker_config.spot_count
   base_aws_ami              = data.aws_ami.ubuntu.id
+  environment               = var.core_config.environment
 
   # Kubernetes config (from original variables)
   k8s_user               = var.kubernetes_config.k8s_user
   k8s_major_minor_stream = var.kubernetes_config.k8s_major_minor_stream
-  cluster_dns_ip         = var.network_config.kubernetes_cidrs.pod_cidr
+  k8s_apt_package_suffix = var.kubernetes_config.k8s_apt_package_suffix
+  k8s_full_patch_version = var.kubernetes_config.k8s_full_patch_version
 
   # Networking
   subnet_ids         = module.aws_infrastructure.private_subnet_ids
@@ -306,8 +290,8 @@ module "cpu_workers" {
   iam_policy_version = var.network_config.iam_policy_version
 
   # S3
-  bootstrap_bucket_name = var.network_config.bootstrap_bucket_name
-  # bootstrap_bucket_dependency = aws_s3_bucket.bootstrap_bucket.bucket
+  k8s_scripts_bucket_name       = var.network_config.k8s_scripts_bucket_name
+  k8s_scripts_bucket_dependency = var.network_config.k8s_scripts_bucket_arn
   # SSH
   ssh_key_name = var.security_config.ssh_key_name
 
@@ -346,11 +330,15 @@ module "gpu_workers" {
   instance_requirements     = local.gpu_worker_config.instance_requirements
   on_demand_count           = local.gpu_worker_config.on_demand_count
   spot_count                = local.gpu_worker_config.spot_count
+  base_aws_ami              = data.aws_ami.ubuntu.id
   base_gpu_ami              = data.aws_ami.ubuntu.id
+  environment               = var.core_config.environment
+
   # Kubernetes config
   k8s_user               = var.kubernetes_config.k8s_user
   k8s_major_minor_stream = var.kubernetes_config.k8s_major_minor_stream
-  cluster_dns_ip         = var.network_config.cluster_dns_ip
+  k8s_apt_package_suffix = var.kubernetes_config.k8s_apt_package_suffix
+  k8s_full_patch_version = var.kubernetes_config.k8s_full_patch_version
 
   # Networking
   subnet_ids         = module.aws_infrastructure.private_subnet_ids
@@ -361,8 +349,8 @@ module "gpu_workers" {
   iam_policy_version = var.network_config.iam_policy_version
 
   # S3
-  bootstrap_bucket_name = var.network_config.bootstrap_bucket_name
-  # bootstrap_bucket_dependency = aws_s3_bucket.bootstrap_bucket.bucket
+  k8s_scripts_bucket_name       = var.network_config.k8s_scripts_bucket_name
+  k8s_scripts_bucket_dependency = var.network_config.k8s_scripts_bucket_arn
 
   # SSH
   ssh_key_name = var.security_config.ssh_key_name

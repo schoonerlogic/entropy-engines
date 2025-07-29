@@ -18,12 +18,15 @@ module "cpu_worker_base" {
   instance_requirements     = var.instance_requirements
   on_demand_count           = var.on_demand_count
   spot_count                = var.spot_count
-  base_ami                  = var.base_aws_ami
+  base_aws_ami              = var.base_aws_ami
+  environment               = var.environment
 
   # Kubernetes configuration
-  k8s_user               = var.k8s_user
-  k8s_major_minor_stream = var.k8s_major_minor_stream
-  cluster_dns_ip         = var.cluster_dns_ip
+  k8s_user                   = var.k8s_user
+  k8s_major_minor_stream     = var.k8s_major_minor_stream
+  k8s_full_patch_version     = var.k8s_full_patch_version
+  k8s_apt_package_suffix     = var.k8s_apt_package_suffix
+  k8s_package_version_string = "${var.k8s_full_patch_version}-${var.k8s_apt_package_suffix}"
 
   # Networking
   subnet_ids         = var.subnet_ids
@@ -35,8 +38,8 @@ module "cpu_worker_base" {
   iam_policy_version = var.iam_policy_version
 
   # S3 bootstrap (CPU workers use cpu-node-init.sh)
-  bootstrap_bucket_name = var.bootstrap_bucket_name
-  bootstrap_script_name = "cpu-node-init.sh"
+  k8s_scripts_bucket_name = var.k8s_scripts_bucket_name
+  bootstrap_script_name   = "cpu-node-init.sh"
 
 
   # ASG Configuration

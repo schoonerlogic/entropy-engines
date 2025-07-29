@@ -25,7 +25,6 @@ locals {
   k8s_user                   = var.k8s_user
   k8s_major_minor_stream     = var.k8s_major_minor_stream
   k8s_full_patch_version     = var.k8s_full_patch_version
-  k8s_apt_package_suffix     = var.k8s_apt_package_suffix
   k8s_package_version_string = "${var.k8s_full_patch_version}-${var.k8s_apt_package_suffix}"
 
   # IAM configuration
@@ -118,7 +117,7 @@ locals {
 resource "aws_s3_object" "control_plane_setup_scripts" {
   for_each = local.rendered_s3_scripts
 
-  bucket = var.bootstrap_bucket_name
+  bucket = var.k8s_scripts_bucket_name
 
   key = "scripts/${each.key}.sh"
 
@@ -126,7 +125,7 @@ resource "aws_s3_object" "control_plane_setup_scripts" {
 
   etag = md5(each.value)
 
-  # depends_on = [var.bootstrap_bucket_dependency]
+  depends_on = [var.k8s_scripts_bucket_dependency]
 }
 
 #===============================================================================
@@ -156,7 +155,7 @@ resource "aws_launch_template" "controller_lt" {
 
   # User data for self-bootstrapping control plane
   user_data = base64encode(templatefile("${path.module}/templates/entrypoint.sh.tftpl", {
-    s3_bucket_name = var.bootstrap_bucket_name
+    s3_bucket_name = var.k8s_scripts_bucket_name
   }))
 
   iam_instance_profile {

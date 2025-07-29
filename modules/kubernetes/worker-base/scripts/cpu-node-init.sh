@@ -18,20 +18,14 @@ if [ "$#" -lt 3 ]; then
 fi
 
 # --- Logging Setup ---
-LOG_FILE="/var/log/worker-node-bootstrap.log" # Specific name for this script's log
+LOG_DIR="/var/log/terraform-provisioning"
+
+LOG_FILE="$LOG_DIR/controller-setup.log"
+
 touch "${LOG_FILE}"
 chmod 644 "${LOG_FILE}"
 exec > >(tee -a "${LOG_FILE}") 2>&1 # Redirect stdout and stderr to log file and console
 
-# --- Color Codes and Logging Functions ---
-RED='\033[0;31m'
-GREEN='\033[0;32m'
-YELLOW='\033[0;33m'
-NC='\033[0m' # No Color
-
-log() { echo -e "${GREEN}[INFO]${NC} $(date '+%Y-%m-%d %H:%M:%S') - $1"; }
-warn() { echo -e "${YELLOW}[WARNING]${NC} $(date '+%Y-%m-%d %H:%M:%S') - $1"; }
-error() { echo -e "${RED}[ERROR]${NC} $(date '+%Y-%m-%d %H:%M:%S') - $1"; exit 1; }
 
 log "Worker Node User Data Script (for Baked AMI) started."
 

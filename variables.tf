@@ -21,8 +21,9 @@ variable "core_config" {
 variable "network_config" {
   description = "Network configuration settings"
   type = object({
-    bootstrap_bucket_name = optional(string, "k8s-worker-bootstrap-bucket")
-    vpc_cidr              = optional(string, "10.0.0.0/16")
+    k8s_scripts_bucket_name = optional(string, "k8s-scripts-bucket_name")
+    k8s_scripts_bucket_arn  = optional(string, null)
+    vpc_cidr                = optional(string, "10.0.0.0/16")
 
     kubernetes_cidrs = optional(object({
       pod_cidr     = string

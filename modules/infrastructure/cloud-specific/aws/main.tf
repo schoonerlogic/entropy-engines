@@ -1,20 +1,3 @@
-# terraform {
-#   required_providers {
-#     aws = {
-#       source  = "hashicorp/aws"
-#       version = "~> 5.0" # Adding version constraint
-#     }
-#     local = {
-#       source  = "hashicorp/local"
-#       version = "~> 2.4" # Adding version constraint
-#     }
-#     random = {
-#       source  = "hashicorp/random"
-#       version = "~> 3.5" # Adding version constraint for random provider
-#     }
-#   }
-# }
-#
 # Extract values from individual variables for easier access
 locals {
   # Core values
@@ -23,7 +6,7 @@ locals {
   environment = var.environment
   vpc_name    = var.vpc_name
 
-  bootstrap_bucket_name = var.bootstrap_bucket_name
+  k8s_scripts_bucket_name = var.k8s_scripts_bucket_name
 
   # Security values
   ssh_key_name = var.ssh_key_name
@@ -39,8 +22,16 @@ provider "aws" {
   region = local.aws_region
 }
 
-resource "aws_s3_bucket" "worker_s3_bootstrap_bucket" {
-  bucket = local.bootstrap_bucket_name
+resource "aws_s3_bucket" "k8s_scripts_bucket" {
+  bucket        = local.k8s_scripts_bucket_name
+  force_destroy = true # This allows non-empty buckets to be destroyed
+}
+
+resource "aws_s3_bucket_ownership_controls" "k8s_scriptsj_bucket_ownership" {
+  bucket = aws_s3_bucket.k8s_scripts_bucket.id
+  rule {
+    object_ownership = "BucketOwnerEnforced"
+  }
 }
 
 # Pass individual variables to submodules
@@ -89,7 +80,7 @@ module "iam" {
   control_plane_role_name = var.control_plane_role_name
   worker_role_name        = var.worker_role_name
   gpu_worker_role_name    = var.gpu_worker_role_name
-  bootstrap_bucket_name   = var.bootstrap_bucket_name
+  k8s_scripts_bucket_name = var.k8s_scripts_bucket_name
 }
 
 data "aws_caller_identity" "current" {}

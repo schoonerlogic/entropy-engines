@@ -103,12 +103,12 @@ variable "control_plane_role_name" {
 # S3 Bootstrap Configuration
 #===============================================================================
 
-variable "bootstrap_bucket_name" {
+variable "k8s_scripts_bucket_name" {
   description = "Name of the S3 bucket containing bootstrap scripts"
   type        = string
 }
 
-variable "bootstrap_bucket_dependency" {
+variable "k8s_scripts_bucket_dependency" {
   description = "S3 bucket dependency"
   type        = any
   default     = null

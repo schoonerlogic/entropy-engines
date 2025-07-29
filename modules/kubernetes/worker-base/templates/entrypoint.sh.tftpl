@@ -5,7 +5,6 @@ S3_SCRIPTS_BUCKET="${s3_bucket_name}"
 DOWNLOAD_DIR="/tmp/k8s-scripts"
 mkdir -p "$${DOWNLOAD_DIR}"
 
-
 #!/bin/bash
 set -euxo pipefail
 
@@ -66,6 +65,7 @@ fi
 DOWNLOAD_DIR="/tmp/k8s-scripts"
 mkdir -p "$${DOWNLOAD_DIR}"
 aws s3 cp "s3://${s3_bucket_name}/scripts/" "$${DOWNLOAD_DIR}/" --recursive
+
 
 # --- APT lock handling ---
 wait_for_apt_lock() {

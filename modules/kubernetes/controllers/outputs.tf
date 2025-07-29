@@ -138,9 +138,9 @@ output "controller_config_summary" {
 #===============================================================================
 # Bootstrap Information
 #===============================================================================
-output "bootstrap_bucket" {
+output "k9s_scripts_bucket" {
   description = "S3 URI of the control plane bootstrap bucket"
-  value       = "s3://${var.bootstrap_bucket_name}"
+  value       = "s3://${var.k8s_scripts_bucket_name}"
 }
 
 output "bootstrap_script_s3_uri" {

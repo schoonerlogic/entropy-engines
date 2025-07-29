@@ -15,16 +15,13 @@ terraform {
 #===============================================================================
 
 locals {
-  # Calculate total instance count
-  total_instance_count = var.on_demand_count + var.spot_count
-
   # Worker identification tags
   worker_tag_key   = "ClusterWorkerType"
   worker_tag_value = "${var.cluster_name}-${var.worker_type}-worker"
 
   # Bootstrap script selection - use provided name or default based on worker type
-  bootstrap_script_name = var.bootstrap_script_name != null ? var.bootstrap_script_name : "${var.worker_type}-node-init.sh"
-  bootstrap_script_path = "${path.module}/scripts/${local.bootstrap_script_name}"
+  bootstrap_script_name = var.bootstrap_script_name != null ? var.bootstrap_script_name : "bootstrap.sh.tftpl"
+  bootstrap_script_path = "${path.module}/templates/${local.bootstrap_script_name}"
 
   # ASG sizing (use provided values or default to total count)
   asg_min_size = var.min_size != null ? var.min_size : local.total_instance_count
@@ -32,22 +29,6 @@ locals {
 
   # Determine if we're using instance requirements or traditional instance types
   using_instance_requirements = var.use_instance_requirements && var.instance_requirements != null
-
-  # On-demand percentage calculation for mixed instances policy
-  on_demand_percentage = (
-    local.total_instance_count == 0 ? 0 :
-    var.on_demand_count == 0 ? 0 :
-    var.spot_count == 0 ? 100 :
-    floor((var.on_demand_count / local.total_instance_count) * 100)
-  )
-
-  # Common tags for all resources
-  common_tags = merge(var.additional_tags, {
-    Cluster    = var.cluster_name
-    WorkerType = var.worker_type
-    ManagedBy  = "terraform"
-    Module     = "worker-base"
-  })
 }
 #===============================================================================
 # Data Sources
@@ -60,25 +41,101 @@ data "aws_region" "current" {}
 #===============================================================================
 # S3 Bootstrap Script Upload
 #===============================================================================
+locals {
+  # Instance configuration
+  on_demand_count = var.on_demand_count
+  spot_count      = var.spot_count
+  instance_types  = var.instance_types
 
-resource "aws_s3_object" "worker_script" {
-  bucket = var.bootstrap_bucket_name
-  key    = "scripts/${var.cluster_name}/${var.worker_type}-bootstrap-script"
-  source = local.bootstrap_script_path
+  # Kubernetes configuration
+  cluster_name               = var.cluster_name
+  k8s_user                   = var.k8s_user
+  k8s_major_minor_stream     = var.k8s_major_minor_stream
+  k8s_full_patch_version     = var.k8s_full_patch_version
+  k8s_apt_package_suffix     = var.k8s_apt_package_suffix
+  k8s_package_version_string = "${local.k8s_full_patch_version}-${local.k8s_apt_package_suffix}"
 
-  depends_on = [var.bootstrap_bucket_dependency]
+  # IAM configuration
+  worker_role_name = var.worker_role_name
 
-  # Ensure Terraform replaces the object if the file content changes
-  etag = filemd5(local.bootstrap_script_path)
+  # Network configuration
+  base_aws_ami = var.base_aws_ami
+  subnet_ids   = var.subnet_ids
 
-  # Set content type for clarity
-  content_type = "text/x-shellscript"
+  # Security configuration
+  environment        = var.environment
+  ssh_key_name       = var.ssh_key_name
+  security_group_ids = var.security_group_ids
+
+  # Calculated values
+  total_instance_count = local.on_demand_count + local.spot_count
+
+  # Control plane identification
+  controller_tag_key   = "ClusterControllerType"
+  controller_tag_value = "${local.cluster_name}-controller"
+
+  # SSM paths
+  ssm_join_command_path    = "/entropy-engines/${local.cluster_name}/control-plane/join-command"
+  ssm_certificate_key_path = "/entropy-engines/${local.cluster_name}/join-command/certificate/key"
+
+  # Script selection
+  control_plane_bootstrap_script     = "control-plane-bootstrap.sh.tftpl"
+  control_plane_bootstrap_script_key = "cp-bootstrap.sh"
+
+  # Common tags
+  common_tags = merge(var.additional_tags, {
+    Cluster     = local.cluster_name
+    Environment = local.environment
+    NodeType    = "control-plane"
+    ManagedBy   = "terraform"
+  })
+}
+
+locals {
+  # Define each script, its template, and its specific variables
+  worker_scripts = {
+    "01-install-worker-user-and-tooling" = {
+      template_path = "${path.module}/templates/install-worker-user-and-tooling.sh.tftpl"
+      vars = {
+        k8s_user                   = local.k8s_user
+        k8s_major_minor_stream     = local.k8s_major_minor_stream
+        k8s_package_version_string = local.k8s_package_version_string
+      }
+    }
+    "02-k8s_worker_setup" = {
+      template_path = "${path.module}/templates/k8s-worker-setup.sh.tftpl"
+      vars = {
+        node_index               = 0
+        k8s_user                 = local.k8s_user
+        cluster_name             = local.cluster_name
+        ssm_join_command_path    = local.ssm_join_command_path
+        ssm_certificate_key_path = local.ssm_certificate_key_path
+      }
+    },
+  }
+
+  rendered_s3_scripts = {
+    for key, config in local.worker_scripts : key => templatefile(config.template_path, config.vars)
+  }
+}
+
+resource "aws_s3_object" "worker_setup_scripts" {
+  for_each = local.rendered_s3_scripts
+
+  bucket = var.k8s_scripts_bucket_name
+
+  key = "scripts/workers/${each.key}.sh"
+
+  content = each.value
+
+  etag = md5(each.value)
+
+  depends_on = [var.k8s_scripts_bucket_dependency]
 }
 
 #===============================================================================
 # IAM Instance Profile
 #===============================================================================
-
 resource "aws_iam_instance_profile" "worker_profile" {
   name = "${var.cluster_name}-${var.worker_type}-worker-profile"
   role = var.worker_role_name
@@ -92,31 +149,24 @@ resource "aws_iam_instance_profile" "worker_profile" {
 #===============================================================================
 # Launch Template
 #===============================================================================
-
 resource "aws_launch_template" "worker_lt" {
   name_prefix = "${var.cluster_name}-${var.worker_type}-worker-lt-"
   description = "Launch template for ${var.cluster_name} ${var.worker_type} workers"
 
   # Instance configuration
-  image_id      = var.base_ami
-  instance_type = local.using_instance_requirements ? null : var.instance_types[0]
-  key_name      = var.ssh_key_name
+  image_id = var.base_aws_ami
+  key_name = var.ssh_key_name
 
-  vpc_security_group_ids = var.security_group_ids
+  # User data for self-bootstrapping workers
+  user_data = base64encode(templatefile("${path.module}/templates/entrypoint.sh.tftpl", {
+    s3_bucket_name = var.k8s_scripts_bucket_name
+  }))
 
   iam_instance_profile {
     name = aws_iam_instance_profile.worker_profile.name
   }
 
-  # User data for self-bootstrapping
-  user_data = base64encode(templatefile("${path.module}/templates/user-data.sh.tftpl", {
-    s3_script_uri         = "s3://${var.bootstrap_bucket_name}/${aws_s3_object.worker_script.key}"
-    k8s_user              = var.k8s_user
-    k8s_major_minor       = var.k8s_major_minor_stream
-    ssm_join_command_path = "/entropy-engines/${var.cluster_name}/control-plane/join-command"
-    cluster_dns_ip        = var.cluster_dns_ip
-    cluster_name          = var.cluster_name
-  }))
+  vpc_security_group_ids = var.security_group_ids
 
   # Block device mappings
   dynamic "block_device_mappings" {
@@ -238,7 +288,7 @@ resource "aws_autoscaling_group" "worker_asg" {
 
     instances_distribution {
       on_demand_base_capacity                  = var.on_demand_count
-      on_demand_percentage_above_base_capacity = local.on_demand_percentage
+      on_demand_percentage_above_base_capacity = local.on_demand_count > 0 && local.spot_count > 0 ? floor((local.on_demand_count / local.total_instance_count) * 100) : (local.on_demand_count > 0 ? 100 : 0)
       spot_allocation_strategy                 = var.spot_allocation_strategy
     }
   }
@@ -271,7 +321,6 @@ resource "aws_autoscaling_group" "worker_asg" {
 
   depends_on = [
     aws_iam_instance_profile.worker_profile,
-    aws_s3_object.worker_script
   ]
 }
 

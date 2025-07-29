@@ -10,23 +10,6 @@ locals {
 }
 
 
-# Data source for Ubuntu AMI (used by spot-enabled modules)
-# data "aws_ami" "ubuntu" {
-#   most_recent = true
-#   owners      = ["099720109477"] # Canonical
-#
-#   filter {
-#     name   = "name"
-#     values = ["ubuntu/images/hvm-ssd/ubuntu-jammy-22.04-arm64-server-*"]
-#   }
-#
-#   filter {
-#     name   = "virtualization-type"
-#     values = ["hvm"]
-#   }
-# }
-#
-
 data "aws_ami" "ubuntu" {
   most_recent = true
   owners      = ["099720109477"] # Canonical
@@ -36,6 +19,7 @@ data "aws_ami" "ubuntu" {
     # More flexible wildcard matching (covers minor naming variations)
     values = [
       "ubuntu/images/hvm-ssd-gp3/ubuntu-noble-24.04-arm64-server-*",
+      "ubuntu-eks*/k8s_*/images/hvm-ssd-gp3/ubuntu-noble-24.04-arm64-server-*"
     ]
   }
 
@@ -68,15 +52,17 @@ module "aws_infrastructure" {
   # Network configuration
   base_aws_ami = data.aws_ami.ubuntu.id
   #  gpu_aws_ami           = var.network_config.gpu_aws_ami
-  bootstrap_bucket_name = var.network_config.bootstrap_bucket_name
-  vpc_cidr              = var.network_config.vpc_cidr
-  kubernetes_cidrs      = var.network_config.kubernetes_cidrs
-  cluster_dns_ip        = var.network_config.cluster_dns_ip
-  availability_zones    = var.network_config.availability_zones
-  public_subnet_count   = var.network_config.public_subnet_count
-  private_subnet_count  = var.network_config.private_subnet_count
-  subnet_ids            = var.network_config.subnet_ids
-  iam_policy_version    = var.network_config.iam_policy_version
+  k8s_scripts_bucket_name       = var.network_config.k8s_scripts_bucket_name
+  k8s_scripts_bucket_dependency = var.network_config.k8s_scripts_bucket_arn
+
+  vpc_cidr             = var.network_config.vpc_cidr
+  kubernetes_cidrs     = var.network_config.kubernetes_cidrs
+  cluster_dns_ip       = var.network_config.cluster_dns_ip
+  availability_zones   = var.network_config.availability_zones
+  public_subnet_count  = var.network_config.public_subnet_count
+  private_subnet_count = var.network_config.private_subnet_count
+  subnet_ids           = var.network_config.subnet_ids
+  iam_policy_version   = var.network_config.iam_policy_version
 
   # NAT configuration
   nat_type           = var.nat_config.nat_type

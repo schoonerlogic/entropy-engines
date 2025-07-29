@@ -12,10 +12,8 @@ wait_for_apt_lock() {
     echo "Apt lock released, proceeding..."
 }
 
-sudo mkdir -p /var/log/terraform-provisioning
-sudo chown "$(whoami):$(whoami)" /var/log/terraform-provisioning
+LOG_FILE="/var/log/install-user-and-tooling.log"
 
-LOG_FILE="/var/log/terraform-provisioning/install-user-and-tooling.log"
 touch $LOG_FILE
 chmod 644 $LOG_FILE
 exec > >(tee -a $LOG_FILE) 2>&1

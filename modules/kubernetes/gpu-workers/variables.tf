@@ -19,6 +19,10 @@ variable "worker_type" {
   }
 }
 
+variable "environment" {
+  description = "Environment name (dev, staging, prod, etc.)"
+  type        = string
+}
 #===============================================================================
 # Instance Configuration
 #===============================================================================
@@ -77,6 +81,11 @@ variable "spot_count" {
   type        = number
 }
 
+variable "base_aws_ami" {
+  description = "AMI ID for gpu worker instances"
+  type        = string
+}
+
 variable "base_gpu_ami" {
   description = "AMI ID for gpu worker instances"
   type        = string
@@ -96,10 +105,17 @@ variable "k8s_major_minor_stream" {
   type        = string
 }
 
-variable "cluster_dns_ip" {
-  description = "Cluster DNS IP address"
+variable "k8s_full_patch_version" {
+  description = "Full Kubernetes patch version"
   type        = string
 }
+
+variable "k8s_apt_package_suffix" {
+  description = "APT package suffix for Kubernetes"
+  type        = string
+}
+
+
 
 #===============================================================================
 # Networking
@@ -138,12 +154,12 @@ variable "iam_policy_version" {
 # S3
 #===============================================================================
 
-variable "bootstrap_bucket_name" {
+variable "k8s_scripts_bucket_name" {
   description = "Name of the S3 bucket containing bootstrap scripts"
   type        = string
 }
 
-variable "bootstrap_bucket_dependency" {
+variable "k8s_scripts_bucket_dependency" {
   description = "S3 bucket dependency"
   type        = any
   default     = null

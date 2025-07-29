@@ -1,0 +1,479 @@
+#!/bin/bash
+set -euo pipefail
+
+# =============================================================================
+# Kubernetes Worker Node Setup Script
+# =============================================================================
+# This script sets up ephemeral NVMe storage for Kubernetes workloads and 
+# joins the node to the cluster. Designed for Ubuntu ARM64 EC2 instances.
+# =============================================================================
+
+# --- Configuration ---
+readonly TARGET_USER="${k8s_user}"
+readonly SSM_JOIN_COMMAND_PATH="${ssm_join_command_path}"
+readonly LOG_DIR="/var/log/terraform-provisioning"
+readonly LOG_FILE="$LOG_DIR/k8s-worker-setup.log"
+readonly NVME_MOUNT_POINT="/mnt/nvme_storage"
+readonly MIN_NVME_SIZE_BYTES=107374182400  # 100 GiB
+
+# --- Logging Functions ---
+setup_logging() {
+    mkdir -p "$LOG_DIR"
+    touch "$LOG_FILE"
+    chmod 644 "$LOG_FILE"
+    exec > >(tee -a "$LOG_FILE") 2>&1
+}
+
+log() {
+    echo "[$(date '+%Y-%m-%d %H:%M:%S')] INFO: $*"
+}
+
+warn() {
+    echo "[$(date '+%Y-%m-%d %H:%M:%S')] WARN: $*" >&2
+}
+
+error() {
+    echo "[$(date '+%Y-%m-%d %H:%M:%S')] ERROR: $*" >&2
+    exit 1
+}
+
+# --- AWS Metadata Functions ---
+get_instance_metadata() {
+    local token
+    token=$(curl -sf -X PUT "http://169.254.169.254/latest/api/token" \
+        -H "X-aws-ec2-metadata-token-ttl-seconds: 300" 2>/dev/null || echo "")
+    
+    local header_args=""
+    if [[ -n "$token" ]]; then
+        header_args="-H X-aws-ec2-metadata-token: $token"
+    fi
+    
+    # Export for use in other functions
+    export METADATA_HEADER_ARGS="$header_args"
+    
+    # Get region and instance ID
+    EC2_REGION=$(curl -sf $header_args \
+        "http://169.254.169.254/latest/dynamic/instance-identity/document" 2>/dev/null \
+        | jq -r '.region // "us-east-1"' 2>/dev/null || echo "us-east-1")
+    
+    INSTANCE_ID=$(curl -sf $header_args \
+        "http://169.254.169.254/latest/meta-data/instance-id" 2>/dev/null || hostname)
+    
+    export EC2_REGION INSTANCE_ID
+    log "Region: $EC2_REGION, Instance: $INSTANCE_ID"
+}
+
+# --- CloudWatch Logging Setup ---
+setup_cloudwatch_logging() {
+    if ! command -v aws &>/dev/null; then
+        log "AWS CLI not available, skipping CloudWatch logging setup"
+        return 0
+    fi
+    
+    local log_group="/aws/ec2/kubernetes-bootstrap"
+    local log_stream="$INSTANCE_ID-$(date +%s)"
+    
+    # Create log group and stream (ignore errors if they exist)
+    aws logs create-log-group --log-group-name "$log_group" \
+        --region "$EC2_REGION" 2>/dev/null || true
+    aws logs create-log-stream --log-group-name "$log_group" \
+        --log-stream-name "$log_stream" --region "$EC2_REGION" 2>/dev/null || true
+    
+    log "CloudWatch logging configured: $log_group/$log_stream"
+}
+
+# --- NVMe Storage Functions ---
+find_ephemeral_nvme() {
+    log "Searching for ephemeral NVMe storage..."
+    
+    # Find root disk to exclude it
+    local root_partition
+    root_partition=$(findmnt -n -o SOURCE /) || error "Cannot find root partition"
+    
+    local root_disk
+    root_disk=$(lsblk -no pkname "$root_partition" 2>/dev/null || echo "")
+    if [[ -n "$root_disk" && ! "$root_disk" =~ ^/ ]]; then
+        root_disk="/dev/$root_disk"
+    elif [[ -z "$root_disk" ]]; then
+        # Fallback: extract disk from partition name
+        root_disk=$(echo "$root_partition" | sed 's/[0-9]*$//')
+    fi
+    
+    log "Root disk identified as: $root_disk"
+    
+    # Find suitable NVMe device
+    local target_device=""
+    while IFS= read -r line; do
+        local device type size mountpoint
+        read -r device type size mountpoint <<< "$line"
+        
+        log "Evaluating device: $device (type=$type, size=$size, mount=$mountpoint)"
+        
+        # Check if it's a suitable NVMe device
+        if [[ "$device" =~ ^/dev/nvme && "$type" == "disk" && \
+              "$device" != "$root_disk" && "$size" -gt "$MIN_NVME_SIZE_BYTES" ]]; then
+            
+            # Check if unmounted or temporarily mounted
+            if [[ -z "$mountpoint" || "$mountpoint" =~ ^(/mnt|/media/ephemeral) ]]; then
+                target_device="$device"
+                
+                # Unmount if temporarily mounted
+                if [[ -n "$mountpoint" && "$mountpoint" != "/" ]]; then
+                    log "Unmounting $device from $mountpoint"
+                    umount "$device" || warn "Failed to unmount $device"
+                fi
+                break
+            fi
+        fi
+    done < <(lsblk -dpbno NAME,TYPE,SIZE,MOUNTPOINT -e 7)
+    
+    if [[ -z "$target_device" ]]; then
+        lsblk -fp
+        error "No suitable ephemeral NVMe device found (min size: $${MIN_NVME_SIZE_BYTES} bytes)"
+    fi
+    
+    echo "$target_device"
+}
+
+format_and_mount_nvme() {
+    local device="$1"
+    
+    log "Formatting $device with XFS filesystem..."
+    mkfs.xfs -f "$device" || error "Failed to format $device"
+    
+    log "Creating mount point: $NVME_MOUNT_POINT"
+    mkdir -p "$NVME_MOUNT_POINT"
+    
+    log "Mounting $device to $NVME_MOUNT_POINT"
+    mount -t xfs -o discard "$device" "$NVME_MOUNT_POINT" || \
+        error "Failed to mount $device"
+    
+    log "NVMe storage mounted successfully"
+    df -hT "$NVME_MOUNT_POINT"
+}
+
+# --- Directory Setup Functions ---
+create_directory_structure() {
+    log "Creating directory structure on NVMe storage..."
+    
+    # Define directory paths
+    local containerd_dir="$NVME_MOUNT_POINT/lib/containerd"
+    local kubelet_dir="$NVME_MOUNT_POINT/lib/kubelet"
+    local pod_logs_dir="$NVME_MOUNT_POINT/log/pods"
+    local local_path_dir="$NVME_MOUNT_POINT/local-path-provisioner"
+    local shared_data_dir="$NVME_MOUNT_POINT/shared_data/$TARGET_USER"
+    local huggingface_dir="$NVME_MOUNT_POINT/shared_data/$TARGET_USER/huggingface"
+    local datasets_dir="$NVME_MOUNT_POINT/shared_data/$TARGET_USER/datasets"
+    local llm_models_dir="$NVME_MOUNT_POINT/shared_data/$TARGET_USER/llm_models"
+    local user_docker_dir="$NVME_MOUNT_POINT/user_docker_data/$TARGET_USER"
+    
+    # Create all directories
+    log "Creating containerd directory: $containerd_dir"
+    mkdir -p "$containerd_dir" || error "Failed to create containerd directory"
+    
+    log "Creating kubelet directory: $kubelet_dir"
+    mkdir -p "$kubelet_dir" || error "Failed to create kubelet directory"
+    
+    log "Creating pod logs directory: $pod_logs_dir"
+    mkdir -p "$pod_logs_dir" || error "Failed to create pod logs directory"
+    
+    log "Creating local path provisioner directory: $local_path_dir"
+    mkdir -p "$local_path_dir" || error "Failed to create local path provisioner directory"
+    
+    log "Creating shared data directory: $shared_data_dir"
+    mkdir -p "$shared_data_dir" || error "Failed to create shared data directory"
+    
+    log "Creating huggingface directory: $huggingface_dir"
+    mkdir -p "$huggingface_dir" || error "Failed to create huggingface directory"
+    
+    log "Creating datasets directory: $datasets_dir"
+    mkdir -p "$datasets_dir" || error "Failed to create datasets directory"
+    
+    log "Creating LLM models directory: $llm_models_dir"
+    mkdir -p "$llm_models_dir" || error "Failed to create LLM models directory"
+    
+    log "Creating user docker directory: $user_docker_dir"
+    mkdir -p "$user_docker_dir" || error "Failed to create user docker directory"
+    
+    # Set special permissions for local path provisioner
+    chmod 1777 "$local_path_dir"
+    
+    # Set ownership for target user directories
+    if id "$TARGET_USER" &>/dev/null; then
+        local shared_base
+        shared_base=$(dirname "$shared_data_dir")
+        
+        log "Setting ownership for $TARGET_USER directories"
+        chown -R "$TARGET_USER:$TARGET_USER" "$shared_base"
+        chmod -R u=rwX,g=rX,o= "$shared_data_dir"
+        
+        # Set ownership for Docker directory if Docker is configured
+        if [[ -f "/etc/docker/daemon.json" ]]; then
+            chown -R "$TARGET_USER:$TARGET_USER" "$user_docker_dir"
+        fi
+    else
+        warn "User $TARGET_USER not found, skipping ownership changes"
+    fi
+    
+    # Export paths for use in symlink creation
+    export NVME_CONTAINERD_DIR="$containerd_dir"
+    export NVME_KUBELET_DIR="$kubelet_dir"
+    export NVME_POD_LOGS_DIR="$pod_logs_dir"
+}
+
+# --- Service Management Functions ---
+stop_services() {
+    log "Stopping services for symlink setup..."
+    
+    # Stop Docker if present and running
+    if systemctl list-units --full -all | grep -q 'docker.service'; then
+        if systemctl is-active --quiet docker; then
+            systemctl stop docker.socket docker.service || \
+                warn "Failed to stop Docker service"
+        fi
+    fi
+    
+    # Stop Kubernetes services
+    systemctl stop kubelet 2>/dev/null || log "kubelet not running"
+    systemctl stop containerd || warn "Failed to stop containerd"
+    
+    sleep 3  # Allow services to release file locks
+}
+
+start_services() {
+    log "Starting services after symlink setup..."
+    
+    systemctl start containerd || error "Failed to start containerd"
+    
+    # Start Docker if configured
+    if systemctl list-units --full -all | grep -q 'docker.service' && \
+       [[ -f "/etc/docker/daemon.json" ]]; then
+        systemctl start docker.socket docker.service || \
+            warn "Failed to start Docker service"
+    fi
+}
+
+# --- Symlink Management ---
+create_k8s_symlinks() {
+    log "Creating Kubernetes directory symlinks..."
+    
+    create_symlink "$NVME_CONTAINERD_DIR" "/var/lib/containerd"
+    create_symlink "$NVME_KUBELET_DIR" "/var/lib/kubelet"
+    create_symlink "$NVME_POD_LOGS_DIR" "/var/log/pods"
+}
+
+create_symlink() {
+    local target_path="$1"
+    local link_path="$2"
+    
+    log "Creating symlink: $link_path -> $target_path"
+    
+    # Ensure parent directory exists
+    mkdir -p "$(dirname "$link_path")"
+    
+    # Handle existing symlink
+    if [[ -L "$link_path" ]]; then
+        if [[ "$(readlink -f "$link_path")" == "$target_path" ]]; then
+            log "Symlink already correct: $link_path"
+            return 0
+        else
+            log "Removing incorrect symlink: $link_path"
+            rm -f "$link_path"
+        fi
+    elif [[ -e "$link_path" ]]; then
+        local backup_path="$${link_path}.backup.$(date +%s)"
+        log "Backing up existing path: $link_path -> $backup_path"
+        mv "$link_path" "$backup_path" || warn "Failed to backup $link_path"
+    fi
+    
+    # Create the symlink
+    ln -sf "$target_path" "$link_path" || error "Failed to create symlink: $link_path"
+    chown -h root:root "$link_path"
+}
+
+# --- SSH Setup ---
+setup_ssh_for_user() {
+    if ! id "$TARGET_USER" &>/dev/null; then
+        warn "User $TARGET_USER not found, skipping SSH setup"
+        return 0
+    fi
+    
+    local default_user="ubuntu"  # Assuming Ubuntu AMI
+    local default_keys="/home/$default_user/.ssh/authorized_keys"
+    local user_ssh_dir="/home/$TARGET_USER/.ssh"
+    local user_keys="$user_ssh_dir/authorized_keys"
+    
+    if [[ ! -f "$default_keys" ]]; then
+        warn "Default user authorized_keys not found: $default_keys"
+        return 0
+    fi
+    
+    log "Setting up SSH keys for $TARGET_USER"
+    mkdir -p "$user_ssh_dir"
+    cp "$default_keys" "$user_keys"
+    chown -R "$TARGET_USER:$TARGET_USER" "$user_ssh_dir"
+    chmod 700 "$user_ssh_dir"
+    chmod 600 "$user_keys"
+}
+
+# --- Kubernetes Join Functions ---
+fetch_join_command() {
+    log "Fetching kubeadm join command from SSM: $SSM_JOIN_COMMAND_PATH"
+    
+    if ! command -v aws &>/dev/null; then
+        error "AWS CLI not found"
+    fi
+    
+    local max_attempts=5
+    local attempt=1
+    
+    while [[ $attempt -le $max_attempts ]]; do
+        log "Attempt $attempt/$max_attempts: Fetching SSM parameter"
+        
+        if JOIN_COMMAND=$(aws ssm get-parameter \
+            --name "$SSM_JOIN_COMMAND_PATH" \
+            --with-decryption \
+            --query "Parameter.Value" \
+            --output text \
+            --region "$EC2_REGION" 2>/dev/null); then
+            
+            if [[ -n "$JOIN_COMMAND" && "$JOIN_COMMAND" != "None" ]]; then
+                log "Successfully fetched join command"
+                export JOIN_COMMAND
+                return 0
+            fi
+        fi
+        
+        warn "Failed to fetch SSM parameter (attempt $attempt/$max_attempts)"
+        if [[ $attempt -lt $max_attempts ]]; then
+            local sleep_time=$((attempt * 10))
+            log "Waiting $${sleep_time}s before retry..."
+            sleep $sleep_time
+        fi
+        ((attempt++))
+    done
+    
+    error "Failed to fetch SSM parameter after $max_attempts attempts"
+}
+
+join_kubernetes_cluster() {
+    log "Executing kubeadm join command..."
+    eval "$JOIN_COMMAND" || error "kubeadm join failed with exit code $?"
+    log "Successfully joined Kubernetes cluster"
+}
+
+# --- Node Readiness Verification ---
+verify_node_readiness() {
+    log "Verifying node readiness..."
+    
+    # Check kubelet service
+    sleep 10
+    if systemctl is-active --quiet kubelet; then
+        log "Kubelet service is active"
+    else
+        warn "Kubelet service is not active"
+    fi
+    
+    # Wait for node to be ready
+    local max_attempts=30
+    local attempt=1
+    local hostname
+    hostname=$(hostname)
+    
+    # Wait for kubelet config
+    while [[ $attempt -le 5 ]]; do
+        if [[ -f "/etc/kubernetes/kubelet.conf" ]]; then
+            log "Kubelet config found"
+            break
+        fi
+        log "Waiting for kubelet config... (attempt $attempt/5)"
+        sleep 10
+        ((attempt++))
+    done
+    
+    if [[ ! -f "/etc/kubernetes/kubelet.conf" ]]; then
+        warn "Kubelet config not found, node readiness check may fail"
+        return 1
+    fi
+    
+    # Check node readiness
+    attempt=1
+    while [[ $attempt -le $max_attempts ]]; do
+        log "Checking node readiness... (attempt $attempt/$max_attempts)"
+        
+        if kubectl --kubeconfig=/etc/kubernetes/kubelet.conf get node "$hostname" \
+           --no-headers 2>/dev/null | grep -q "Ready"; then
+            log "SUCCESS: Node '$hostname' is Ready!"
+            return 0
+        fi
+        
+        # Show status every 5 attempts
+        if [[ $((attempt % 5)) -eq 0 ]]; then
+            log "Current node status:"
+            kubectl --kubeconfig=/etc/kubernetes/kubelet.conf get node "$hostname" \
+                2>/dev/null || log "Cannot get node status yet"
+        fi
+        
+        sleep 20
+        ((attempt++))
+    done
+    
+    warn "Node readiness verification timed out"
+    return 1
+}
+
+# --- Main Execution ---
+main() {
+    setup_logging
+    log "STARTING: Kubernetes worker node setup"
+    log "Target user: $TARGET_USER"
+    log "SSM join command path: $SSM_JOIN_COMMAND_PATH"
+    
+    # Setup and configuration
+    get_instance_metadata
+    setup_cloudwatch_logging
+    
+    # Storage setup
+    local nvme_device
+    nvme_device=$(find_ephemeral_nvme)
+    format_and_mount_nvme "$nvme_device"
+    create_directory_structure
+    
+    # Service and symlink management
+    stop_services
+    create_k8s_symlinks
+    start_services
+    
+    # User setup
+    setup_ssh_for_user
+    
+    # Kubernetes cluster join
+    fetch_join_command
+    join_kubernetes_cluster
+    
+    # Verification
+    if verify_node_readiness; then
+        log "Node readiness verification completed"
+    else
+        warn "Node readiness verification failed, but continuing"
+    fi
+    
+    # Final status
+    log "=== Setup Summary ==="
+    log "SUCCESS: NVMe storage: $nvme_device mounted at $NVME_MOUNT_POINT"
+    log "SUCCESS: Kubernetes directories symlinked to NVMe"
+    log "SUCCESS: Services restarted: containerd, kubelet"
+    log "SUCCESS: Node joined cluster using: $SSM_JOIN_COMMAND_PATH"
+    log "SUCCESS: Target user configured: $TARGET_USER"
+    
+    log "Final NVMe storage usage:"
+    df -hT "$NVME_MOUNT_POINT"
+    
+    log "Final kubelet status:"
+    systemctl --no-pager status kubelet || true
+    
+    log "COMPLETED: Worker node setup finished successfully!"
+}
+
+# Execute main function
+main "$@"

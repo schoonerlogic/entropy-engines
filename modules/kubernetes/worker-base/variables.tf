@@ -19,9 +19,18 @@ variable "worker_type" {
   }
 }
 
+variable "environment" {
+  description = "Environment name (dev, staging, prod, etc.)"
+  type        = string
+}
+
 #===============================================================================
 # Instance Configuration
 #===============================================================================
+variable "base_aws_ami" {
+  description = "AMI ID for controller instances"
+  type        = string
+}
 
 variable "instance_types" {
   description = "List of instance types to use"
@@ -100,11 +109,6 @@ variable "spot_count" {
   type        = number
 }
 
-variable "base_ami" {
-  description = "AMI ID for worker instances"
-  type        = string
-}
-
 #===============================================================================
 # Kubernetes Configuration
 #===============================================================================
@@ -119,10 +123,21 @@ variable "k8s_major_minor_stream" {
   type        = string
 }
 
-variable "cluster_dns_ip" {
-  description = "Cluster DNS IP address"
+variable "k8s_full_patch_version" {
+  description = "Full Kubernetes patch version"
   type        = string
 }
+
+variable "k8s_apt_package_suffix" {
+  description = "APT package suffix for Kubernetes"
+  type        = string
+}
+
+variable "k8s_package_version_string" {
+  description = "Fully qualified Kubernetes version for apt package (e.g., 1.33.3-1.1)"
+  type        = string
+}
+
 
 #===============================================================================
 # Networking
@@ -161,7 +176,7 @@ variable "iam_policy_version" {
 # S3 Bootstrap Configuration
 #===============================================================================
 
-variable "bootstrap_bucket_name" {
+variable "k8s_scripts_bucket_name" {
   description = "Name of the S3 bucket containing bootstrap scripts"
   type        = string
 }
@@ -172,7 +187,7 @@ variable "bootstrap_script_name" {
   default     = null # Will be determined by worker_type if not specified
 }
 
-variable "bootstrap_bucket_dependency" {
+variable "k8s_scripts_bucket_dependency" {
   description = "S3 bucket dependency"
   type        = any
   default     = null
