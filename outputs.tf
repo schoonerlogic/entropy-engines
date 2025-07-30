@@ -108,3 +108,10 @@ output "certificate_key" {
   sensitive   = true
 }
 
+output "k8s_scripts_bucket" {
+  description = "Bucket for scripts to build the cluster"
+  value       = module.aws_infrastructure.k8s_scripts_bucket_name
+  sensitive   = false
+}
+
+

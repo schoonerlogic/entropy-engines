@@ -14,19 +14,25 @@ locals {
 
   # Determine bastion type from security config
   bastion_type = var.enable_bastion_host ? var.bastion_instance_type : "none"
+
+  k8s_scripts_bucket_name = "k8s-scripts-bucket-${random_id.bucket_suffix.hex}"
 }
 
 provider "aws" {
   region = local.aws_region
 }
 
+resource "random_id" "bucket_suffix" {
+  byte_length = 4
+}
+
 resource "aws_s3_bucket" "k8s_scripts_bucket" {
-  bucket        = var.k8s_scripts_bucket_name
+  bucket        = local.k8s_scripts_bucket_name
   force_destroy = true # This allows non-empty buckets to be destroyed
 
   # Enable versioning for safety
   tags = {
-    Name        = "K8s-Scripts-Bucket"
+    Name        = local.k8s_scripts_bucket_name
     Environment = local.environment
   }
 }
@@ -124,7 +130,7 @@ module "iam" {
   control_plane_role_name = var.control_plane_role_name
   worker_role_name        = var.worker_role_name
   gpu_worker_role_name    = var.gpu_worker_role_name
-  k8s_scripts_bucket_name = var.k8s_scripts_bucket_name
+  k8s_scripts_bucket_name = local.k8s_scripts_bucket_name
 }
 
 data "aws_caller_identity" "current" {}

@@ -53,11 +53,6 @@ variable "gpu_worker_role_name" {
 #===============================================================================
 # Network Configuration Variables
 #===============================================================================
-variable "k8s_scripts_bucket_name" {
-  description = "S3 bucket name for worker bootstrap"
-  type        = string
-}
-
 variable "vpc_cidr" {
   description = "VPC CIDR block"
   type        = string

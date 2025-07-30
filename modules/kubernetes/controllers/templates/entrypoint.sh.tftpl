@@ -1,17 +1,6 @@
 #!/bin/bash
 set -euxo pipefail
 
-S3_SCRIPTS_BUCKET="${s3_bucket_name}"
-DOWNLOAD_DIR="/tmp/k8s-scripts"
-mkdir -p "$${DOWNLOAD_DIR}"
-
-
-#!/bin/bash
-set -euxo pipefail
-
-#!/bin/bash
-set -euxo pipefail
-
 wait_for_network() {
     local max_attempts=30
     local attempt=0
@@ -19,32 +8,32 @@ wait_for_network() {
 
     echo "Starting network validation (IMDSv2)"
 
-    while [ $$${attempt} -lt $${max_attempts} ]; do
-        attempt=$$((attempt + 1))
+    while [ $${attempt} -lt $${max_attempts} ]; do
+        attempt=$((attempt + 1))
         
         # Smart backoff calculation
-        base_delay=$$(( attempt < 5 ? attempt * 1 : attempt * 2 ))
-        jitter=$$(( RANDOM % 7 + 3 ))
-        sleep_time=$$(( base_delay + jitter ))
+        base_delay=$(( attempt < 5 ? attempt * 1 : attempt * 2 ))
+        jitter=$(( RANDOM % 7 + 3 ))
+        sleep_time=$(( base_delay + jitter ))
         
         printf "Attempt %02d/%02d: Retry in %02ds\n" \
                $${attempt} $${max_attempts} $${sleep_time}
 
         # IMDSv2 token fetch with validation
-        if token=$$(curl -sSf -X PUT "http://169.254.169.254/latest/api/token" \
+        if token=$(curl -sSf -X PUT "http://169.254.169.254/latest/api/token" \
                      -H "X-aws-ec2-metadata-token-ttl-seconds: $${token_ttl}" \
                      --connect-timeout 3 --retry 2 2>/dev/null); then
             
-            if instance_id=$$(curl -sSf -H "X-aws-ec2-metadata-token: $${token}" \
+            if instance_id=$(curl -sSf -H "X-aws-ec2-metadata-token: $${token}" \
                                --connect-timeout 3 --retry 2 \
                                "http://169.254.169.254/latest/meta-data/instance-id" 2>/dev/null); then
-                echo "✅ Verified network (Instance: $${instance_id})"
+                echo " Verified network (Instance: $${instance_id})"
                 return 0
             fi
         fi
 
         [ $${attempt} -eq $${max_attempts} ] && {
-            echo "❌ Final attempt failed - dumping network state:"
+            echo " Final attempt failed - dumping network state:"
             ip -br -c addr show || true
             ip -c route show || true
             cat /etc/resolv.conf || true
@@ -120,14 +109,14 @@ if ! command -v aws &>/dev/null; then
             echo "FATAL: Failed to install AWS CLI after 3 attempts"
             exit 1
         fi
-        sleep $${attempt} * 5
+        sleep $((attempt * 5))
     done
 fi
 
 # Download scripts from S3 with retries
-echo "Downloading scripts from s3://$${S3_SCRIPTS_BUCKET}..."
+echo "Downloading scripts from s3://${s3_bucket_name}..."
 for attempt in {1..3}; do
-    if aws s3 cp "s3://$${S3_SCRIPTS_BUCKET}/scripts/" "$${DOWNLOAD_DIR}/" --recursive; then
+    if aws s3 cp "s3://${s3_bucket_name}/scripts/" "$${DOWNLOAD_DIR}/" --recursive; then
         break
     fi
     
@@ -136,7 +125,7 @@ for attempt in {1..3}; do
         echo "FATAL: Failed to download scripts after 3 attempts"
         exit 1
     fi
-    sleep $${attempt} * 5
+    sleep $((attempt * 5))
 done
 
 # Execute scripts in order
