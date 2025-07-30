@@ -32,8 +32,10 @@ module "controllers" {
   var.iam_config.control_plane_role_name : "${var.core_config.project}-control-plane-role")
 
   # S3
-  k8s_scripts_bucket_name       = var.network_config.k8s_scripts_bucket_name
-  k8s_scripts_bucket_dependency = var.network_config.k8s_scripts_bucket_arn
+  k8s_scripts_bucket_name = coalesce(
+    var.network_config.k8s_scripts_bucket_name,
+    "k8s-scripts-bucket-${random_id.bucket_suffix.hex}"
+  )
 
   # SSH (still needed for troubleshooting, but not used by bootstrap process)
   ssh_key_name         = var.security_config.ssh_key_name
@@ -122,6 +124,7 @@ locals {
       var.worker_config.worker_storage_overrides.block_device_mappings,
       var.instance_config.default_block_device_mappings
     )
+
 
     # AMI selection
     base_aws_ami = data.aws_ami.ubuntu.id
@@ -257,6 +260,9 @@ locals {
   }
 }
 
+resource "random_id" "bucket_suffix" {
+  byte_length = 4
+}
 
 # CPU Workers Module
 module "cpu_workers" {
@@ -290,8 +296,8 @@ module "cpu_workers" {
   iam_policy_version = var.network_config.iam_policy_version
 
   # S3
-  k8s_scripts_bucket_name       = var.network_config.k8s_scripts_bucket_name
-  k8s_scripts_bucket_dependency = var.network_config.k8s_scripts_bucket_arn
+  k8s_scripts_bucket_name = var.network_config.k8s_scripts_bucket_name
+
   # SSH
   ssh_key_name = var.security_config.ssh_key_name
 
@@ -349,8 +355,7 @@ module "gpu_workers" {
   iam_policy_version = var.network_config.iam_policy_version
 
   # S3
-  k8s_scripts_bucket_name       = var.network_config.k8s_scripts_bucket_name
-  k8s_scripts_bucket_dependency = var.network_config.k8s_scripts_bucket_arn
+  k8s_scripts_bucket_name = var.network_config.k8s_scripts_bucket_name
 
   # SSH
   ssh_key_name = var.security_config.ssh_key_name

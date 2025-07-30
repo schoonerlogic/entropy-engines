@@ -159,12 +159,6 @@ variable "k8s_scripts_bucket_name" {
   type        = string
 }
 
-variable "k8s_scripts_bucket_dependency" {
-  description = "S3 bucket dependency"
-  type        = any
-  default     = null
-}
-
 #===============================================================================
 # Auto Scaling Group Configuration
 #===============================================================================

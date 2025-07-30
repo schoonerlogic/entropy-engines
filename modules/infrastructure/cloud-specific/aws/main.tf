@@ -6,8 +6,6 @@ locals {
   environment = var.environment
   vpc_name    = var.vpc_name
 
-  k8s_scripts_bucket_name = var.k8s_scripts_bucket_name
-
   # Security values
   ssh_key_name = var.ssh_key_name
 
@@ -23,14 +21,60 @@ provider "aws" {
 }
 
 resource "aws_s3_bucket" "k8s_scripts_bucket" {
-  bucket        = local.k8s_scripts_bucket_name
+  bucket        = var.k8s_scripts_bucket_name
   force_destroy = true # This allows non-empty buckets to be destroyed
+
+  # Enable versioning for safety
+  tags = {
+    Name        = "K8s-Scripts-Bucket"
+    Environment = local.environment
+  }
 }
 
-resource "aws_s3_bucket_ownership_controls" "k8s_scriptsj_bucket_ownership" {
+resource "aws_s3_bucket_versioning" "k8s_scripts" {
+  bucket = aws_s3_bucket.k8s_scripts_bucket.id
+  versioning_configuration {
+    status = "Enabled"
+  }
+}
+
+resource "aws_s3_bucket_ownership_controls" "k8s_scripts_bucket_ownership" {
   bucket = aws_s3_bucket.k8s_scripts_bucket.id
   rule {
     object_ownership = "BucketOwnerEnforced"
+  }
+}
+
+# Bucket readiness verification
+resource "null_resource" "bucket_ready" {
+  triggers = {
+    bucket_name = aws_s3_bucket.k8s_scripts_bucket.bucket
+  }
+
+  # Explicit dependency chain
+  depends_on = [
+    aws_s3_bucket.k8s_scripts_bucket,
+    aws_s3_bucket_versioning.k8s_scripts,
+    aws_s3_bucket_ownership_controls.k8s_scripts_bucket_ownership
+  ]
+
+  provisioner "local-exec" {
+    command = <<-EOT
+      #!/bin/bash
+      set -e
+      end_time=$(( $(date +%s) + 300 )) # 5 minute timeout
+
+      while [ $(date +%s) -lt $end_time ]; do
+        if aws s3api head-bucket --bucket ${aws_s3_bucket.k8s_scripts_bucket.bucket} >/dev/null 2>&1; then
+          echo "Bucket is ready"
+          exit 0
+        fi
+        echo "Waiting for bucket to become ready..."
+        sleep 5
+      done
+      echo "Timeout waiting for bucket ${aws_s3_bucket.k8s_scripts_bucket.bucket}"
+      exit 1
+    EOT
   }
 }
 

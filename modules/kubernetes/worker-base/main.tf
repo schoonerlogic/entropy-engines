@@ -130,7 +130,7 @@ resource "aws_s3_object" "worker_setup_scripts" {
 
   etag = md5(each.value)
 
-  depends_on = [var.k8s_scripts_bucket_dependency]
+  depends_on = [var.k8s_scripts_bucket_name]
 }
 
 #===============================================================================

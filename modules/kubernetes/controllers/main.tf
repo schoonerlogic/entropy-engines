@@ -124,8 +124,6 @@ resource "aws_s3_object" "control_plane_setup_scripts" {
   content = each.value
 
   etag = md5(each.value)
-
-  depends_on = [var.k8s_scripts_bucket_dependency]
 }
 
 #===============================================================================

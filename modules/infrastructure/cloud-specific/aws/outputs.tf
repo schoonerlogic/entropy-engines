@@ -199,7 +199,7 @@ output "k8s_scripts_bucket_name" {
   value       = aws_s3_bucket.k8s_scripts_bucket.id
 }
 
-output "k8s_scripts_bucket_arn" {
+output "k8s_scripts_bucket" {
   description = "ARN of the S3 bucket used for worker bootstrap"
-  value       = aws_s3_bucket.k8s_scripts_bucket.arn
+  value       = aws_s3_bucket.k8s_scripts_bucket
 }

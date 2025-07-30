@@ -52,8 +52,7 @@ module "aws_infrastructure" {
   # Network configuration
   base_aws_ami = data.aws_ami.ubuntu.id
   #  gpu_aws_ami           = var.network_config.gpu_aws_ami
-  k8s_scripts_bucket_name       = var.network_config.k8s_scripts_bucket_name
-  k8s_scripts_bucket_dependency = var.network_config.k8s_scripts_bucket_arn
+  k8s_scripts_bucket_name = var.network_config.k8s_scripts_bucket_name
 
   vpc_cidr             = var.network_config.vpc_cidr
   kubernetes_cidrs     = var.network_config.kubernetes_cidrs

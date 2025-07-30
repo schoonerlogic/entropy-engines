@@ -187,12 +187,6 @@ variable "bootstrap_script_name" {
   default     = null # Will be determined by worker_type if not specified
 }
 
-variable "k8s_scripts_bucket_dependency" {
-  description = "S3 bucket dependency"
-  type        = any
-  default     = null
-}
-
 #===============================================================================
 # Auto Scaling Group Configuration
 #===============================================================================

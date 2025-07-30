@@ -19,11 +19,19 @@ variable "core_config" {
 #===============================================================================
 
 variable "network_config" {
-  description = "Network configuration settings"
   type = object({
-    k8s_scripts_bucket_name = optional(string, "k8s-scripts-bucket_name")
-    k8s_scripts_bucket_arn  = optional(string, null)
-    vpc_cidr                = optional(string, "10.0.0.0/16")
+    # Bucket name (for new bucket creation)
+    k8s_scripts_bucket_name = optional(string, "k8s-scripts-bucket")
+
+    # Existing bucket name (if not creating new)
+    k8s_scripts_bucket = optional(string, null)
+
+    # Network configuration
+    vpc_cidr = optional(string, "10.0.0.0/16")
+
+    # Add these new fields for bucket validation
+    skip_bucket_validation = optional(bool, false)
+    bucket_retry_timeout   = optional(number, 300) # 5 minutes
 
     kubernetes_cidrs = optional(object({
       pod_cidr     = string
@@ -40,6 +48,14 @@ variable "network_config" {
     subnet_ids           = list(string)
     iam_policy_version   = optional(string, "v1")
   })
+
+  description = <<-EOT
+  Configuration for Kubernetes resources:
+  - k8s_scripts_bucket_name: Name for new bucket (auto-appends random suffix if not provided)
+  - k8s_scripts_bucket: Existing bucket ARN/name (overrides bucket_name if set)
+  - skip_bucket_validation: Bypass bucket readiness checks (not recommended)
+  - bucket_retry_timeout: Timeout in seconds for bucket validation
+  EOT
 }
 
 #===============================================================================
