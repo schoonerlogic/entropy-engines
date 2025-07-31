@@ -70,17 +70,10 @@ locals {
   # Calculated values
   total_instance_count = local.on_demand_count + local.spot_count
 
-  # Control plane identification
-  controller_tag_key   = "ClusterControllerType"
-  controller_tag_value = "${local.cluster_name}-controller"
-
   # SSM paths
   ssm_join_command_path    = "/entropy-engines/${local.cluster_name}/control-plane/join-command"
   ssm_certificate_key_path = "/entropy-engines/${local.cluster_name}/join-command/certificate/key"
 
-  # Script selection
-  control_plane_bootstrap_script     = "control-plane-bootstrap.sh.tftpl"
-  control_plane_bootstrap_script_key = "cp-bootstrap.sh"
 
   # Common tags
   common_tags = merge(var.additional_tags, {

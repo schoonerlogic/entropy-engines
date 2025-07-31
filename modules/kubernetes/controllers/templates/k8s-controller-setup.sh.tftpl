@@ -2,8 +2,21 @@
 
 set -e -o pipefail
 
+# --- Logging Setup ---
 LOG_DIR="/var/log/terraform-provisioning"
 LOG_FILE="$LOG_DIR/controller-setup.log"
+touch $LOG_FILE
+
+exec > >(tee -a "$LOG_FILE") 2>&1
+
+log() {
+    echo "[$(date '+%Y-%m-%d %H:%M:%S')] $1"
+}
+
+handle_error() {
+    log "ERROR: $1"
+    exit 1
+}
 
 # Function for timestamped logging
 log() {
@@ -13,6 +26,10 @@ log() {
 # Verify cluster is responding
 log "Verifying cluster is responding..."
 sudo kubectl --kubeconfig=/etc/kubernetes/admin.conf cluster-info
+
+# Remove conflicting package
+apt-get update
+apt-get remove -y cnitool-plugins
 
 # Install CNI plugin (Calico)
 log "Installing Calico CNI..."

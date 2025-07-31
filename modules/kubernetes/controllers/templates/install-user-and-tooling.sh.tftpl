@@ -138,6 +138,7 @@ echo "Installing Kubernetes packages: kubelet=$K8S_PKG_VERSION_STRING, kubeadm=$
 wait_for_apt_lock
 sudo apt-get update
 
+wait_for_apt_lock
 if ! sudo apt-get install -y \
   kubelet="$K8S_PKG_VERSION_STRING" \
   kubeadm="$K8S_PKG_VERSION_STRING" \
