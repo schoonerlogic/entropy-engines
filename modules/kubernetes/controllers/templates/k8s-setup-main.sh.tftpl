@@ -1,0 +1,56 @@
+#!/bin/bash
+# /tmp/k8s_scripts/k8s-setup-main.sh
+# Main wrapper script that orchestrates all K8s setup scripts
+
+# Setup logging
+MAIN_LOG_FILE="/var/log/terraform-provisioning/k8s-setup-main.log"
+mkdir -p "$(dirname "$MAIN_LOG_FILE")"
+exec > >(tee -a "$MAIN_LOG_FILE") 2>&1
+
+echo "=== Kubernetes Setup Started at $(date) ==="
+
+# Load shared functions
+SCRIPT_DIR="$(dirname "$0")"
+if [ -f "$SCRIPT_DIR/00-shared-functions.sh" ]; then
+    # shellcheck source=/dev/null
+    source "$SCRIPT_DIR/00-shared-functions.sh"
+    log_info "Shared functions loaded successfully"
+else
+    echo "ERROR: Cannot find shared functions file"
+    exit 1
+fi
+
+# One-time system preparation
+log_info "Starting system preparation..."
+prepare_system_once
+
+# Define the scripts to run in order
+SCRIPTS=(
+    "01-install-user-and-tooling.sh"
+    "02-install-kubernetes.sh" 
+    "03-configure-cluster.sh"
+    "04-install-cni.sh"
+    "05-install-cluster-addons.sh"
+)
+
+# Execute scripts in sequence
+
+for script in $SCRIPTS_LIST; do
+    script_path="$SCRIPT_DIR/$script"
+    
+    if [ -f "$script_path" ]; then
+        log_info "Starting script: $script"
+        
+        if bash "$script_path"; then
+            log_info "Script completed successfully: $script"
+        else
+            log_error "Script failed: $script"
+            exit 1
+        fi
+    else
+        log_warn "Script not found, skipping: $script_path"
+    fi
+done
+
+log_info "=== Kubernetes Setup Completed Successfully at $(date) ==="
+echo "Setup completed. Check $MAIN_LOG_FILE for full details."

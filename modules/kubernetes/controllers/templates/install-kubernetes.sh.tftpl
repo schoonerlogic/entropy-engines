@@ -1,0 +1,497 @@
+#!/bin/bash
+# 03-configure-control-plane.sh.tftpl
+# Refactored to use shared functions architecture
+# Configures Kubernetes control plane - either initializes cluster (primary) or joins it (secondary)
+
+set -euxo pipefail
+
+# =================================================================
+# SHARED FUNCTIONS INTEGRATION
+# =================================================================
+SCRIPT_DIR="$(dirname "$0")"
+if [ -z "$${SYSTEM_PREPARED:-}" ]; then
+    # shellcheck source=/dev/null
+    if [ -f "$SCRIPT_DIR/00-shared-functions.sh" ]; then
+        source "$SCRIPT_DIR/00-shared-functions.sh"
+        log_info "Shared functions loaded successfully"
+    else
+        echo "ERROR: Cannot find shared functions file: $SCRIPT_DIR/00-shared-functions.sh"
+        exit 1
+    fi
+fi
+
+# =================================================================
+# CONFIGURATION VARIABLES (from Terraform)
+# =================================================================
+readonly CLUSTER_NAME="${cluster_name}"
+readonly K8S_VERSION="${k8s_full_patch_version}"
+readonly POD_CIDR_BLOCK="${pod_cidr_block}"
+readonly SERVICE_CIDR_BLOCK="${service_cidr_block}"
+readonly SSM_JOIN_COMMAND_PATH="${ssm_join_command_path}"
+readonly SSM_CERTIFICATE_KEY_PATH="${ssm_certificate_key_path}"
+readonly PRIMARY_PARAM="/k8s/$CLUSTER_NAME/primary-controller"
+
+log_info "=== Control Plane Configuration Started ==="
+log_info "Cluster Name: $CLUSTER_NAME"
+log_info "Kubernetes Version: $K8S_VERSION"
+log_info "Pod CIDR: $POD_CIDR_BLOCK"
+log_info "Service CIDR: $SERVICE_CIDR_BLOCK"
+
+# =================================================================
+# INSTANCE METADATA AND REGION DETECTION
+# =================================================================
+get_instance_info() {
+    log_info "Retrieving instance information..."
+    
+    # Get metadata token (reuse if already available)
+    if [ -z "$${AWS_METADATA_TOKEN:-}" ]; then
+        local token=""
+        local max_attempts=5
+        
+        for attempt in $(seq 1 $max_attempts); do
+            if token=$(curl -X PUT "http://169.254.169.254/latest/api/token" \
+                         -H "X-aws-ec2-metadata-token-ttl-seconds: 21600" \
+                         -s --max-time 10 --connect-timeout 5 2>/dev/null); then
+                export AWS_METADATA_TOKEN="$token"
+                break
+            fi
+            
+            if [ $attempt -lt $max_attempts ]; then
+                log_warn "Failed to get metadata token, retrying..."
+                sleep $((attempt * 2))
+            fi
+        done
+        
+        if [ -z "$${AWS_METADATA_TOKEN:-}" ]; then
+            log_error "Failed to get IMDSv2 token after $max_attempts attempts"
+            return 1
+        fi
+    fi
+    
+    # Get instance IP
+    if ! INSTANCE_IP=$(curl -H "X-aws-ec2-metadata-token: $AWS_METADATA_TOKEN" \
+                         -s --max-time 10 --connect-timeout 5 \
+                         "http://169.254.169.254/latest/meta-data/local-ipv4" 2>/dev/null); then
+        log_error "Failed to retrieve instance IP"
+        return 1
+    fi
+    
+    # Get region from instance identity
+    if ! INSTANCE_REGION=$(curl -H "X-aws-ec2-metadata-token: $AWS_METADATA_TOKEN" \
+                             -s --max-time 10 --connect-timeout 5 \
+                             "http://169.254.169.254/latest/dynamic/instance-identity/document" 2>/dev/null | \
+                           jq -r .region 2>/dev/null); then
+        log_error "Failed to retrieve instance region"
+        return 1
+    fi
+    
+    export INSTANCE_IP
+    export INSTANCE_REGION
+    
+    log_info "Instance IP: $INSTANCE_IP"
+    log_info "Instance Region: $INSTANCE_REGION"
+    
+    return 0
+}
+
+# =================================================================
+# CONTROLLER ROLE DETERMINATION
+# =================================================================
+determine_controller_role() {
+    log_info "=== Determining Controller Role ==="
+    
+    # Check for existing primary controller
+    log_info "Checking SSM parameter: $PRIMARY_PARAM"
+    
+    local existing_primary=""
+    if existing_primary=$(aws ssm get-parameter --name "$PRIMARY_PARAM" \
+                            --query Parameter.Value --output text \
+                            --region "$INSTANCE_REGION" 2>/dev/null); then
+        log_info "Found existing primary controller: $existing_primary"
+    else
+        log_info "No existing primary controller found"
+        existing_primary="UNASSIGNED"
+    fi
+    
+    # Determine role based on existing primary
+    if [[ "$existing_primary" == "UNASSIGNED" || "$existing_primary" == "None" || -z "$existing_primary" ]]; then
+        log_info "Attempting to claim primary controller role..."
+        
+        # Attempt to claim primary role
+        if aws ssm put-parameter --name "$PRIMARY_PARAM" \
+             --value "$INSTANCE_IP" \
+             --type "String" \
+             --overwrite \
+             --region "$INSTANCE_REGION" >/dev/null 2>&1; then
+            
+            export K8S_ROLE="primary"
+            log_info "✓ Successfully claimed primary controller role"
+        else
+            log_error "Failed to claim primary controller role"
+            return 1
+        fi
+        
+    elif [[ "$existing_primary" == "$INSTANCE_IP" ]]; then
+        export K8S_ROLE="primary"
+        log_info "✓ Already assigned as primary controller"
+        
+    else
+        export K8S_ROLE="secondary"
+        log_info "✓ Assigned as secondary controller (Primary: $existing_primary)"
+    fi
+    
+    log_info "Controller role: $K8S_ROLE"
+    return 0
+}
+
+# =================================================================
+# KUBEADM CONFIGURATION GENERATION
+# =================================================================
+generate_kubeadm_config() {
+    log_info "=== Generating kubeadm Configuration ==="
+    
+    local config_dir="/etc/kubeadm"
+    local config_file="$config_dir/kubeadm-config.yaml"
+    
+    # Create config directory
+    mkdir -p "$config_dir"
+    
+    # Generate kubeadm config with current instance IP
+    cat > "$config_file" <<KUBEADM_EOF
+apiVersion: kubeadm.k8s.io/v1beta3
+kind: InitConfiguration
+nodeRegistration:
+  kubeletExtraArgs:
+    cloud-provider: external
+    node-ip: $INSTANCE_IP
+
+---
+apiVersion: kubeadm.k8s.io/v1beta3
+kind: ClusterConfiguration
+kubernetesVersion: $K8S_VERSION
+clusterName: $CLUSTER_NAME
+controlPlaneEndpoint: $INSTANCE_IP:6443
+apiServer:
+  advertiseAddress: $INSTANCE_IP
+  bindPort: 6443
+  certSANs:
+    - $INSTANCE_IP
+    - "kubernetes"
+    - "kubernetes.default"
+    - "kubernetes.default.svc"
+    - "kubernetes.default.svc.cluster.local"
+    - "localhost"
+    - "127.0.0.1"
+  extraArgs:
+    cloud-provider: external
+networking:
+  podSubnet: $POD_CIDR_BLOCK
+  serviceSubnet: $SERVICE_CIDR_BLOCK
+  dnsDomain: cluster.local
+controllerManager:
+  extraArgs:
+    cloud-provider: external
+scheduler:
+  extraArgs: {}
+
+---
+apiVersion: kubelet.config.k8s.io/v1beta1
+kind: KubeletConfiguration
+cgroupDriver: systemd
+serverTLSBootstrap: true
+rotateCertificates: true
+KUBEADM_EOF
+
+    # Verify IP substitution worked
+    if ! grep -q "$INSTANCE_IP" "$config_file"; then
+        log_error "IP substitution failed in kubeadm config"
+        return 1
+    fi
+    
+    # Set proper ownership
+    chown root:root "$config_file"
+    chmod 644 "$config_file"
+    
+    log_info "✓ Kubeadm configuration generated: $config_file"
+    log_info "Configuration preview:"
+    head -20 "$config_file" | while IFS= read -r line; do
+        log_info "  $line"
+    done
+    
+    return 0
+}
+
+# =================================================================
+# PRIMARY CONTROLLER INITIALIZATION
+# =================================================================
+initialize_primary_controller() {
+    log_info "=== Initializing Primary Controller ==="
+    
+    local config_file="/etc/kubeadm/kubeadm-config.yaml"
+    
+    # Check if cluster is already initialized
+    if [ -f "/etc/kubernetes/admin.conf" ]; then
+        log_info "Cluster already initialized, checking status..."
+        
+        # Verify cluster is healthy
+        export KUBECONFIG=/etc/kubernetes/admin.conf
+        if kubectl cluster-info >/dev/null 2>&1; then
+            log_info "✓ Existing cluster is healthy"
+            return 0
+        else
+            log_warn "Existing cluster appears unhealthy, reinitializing..."
+            kubeadm reset -f || log_warn "Reset completed or not needed"
+        fi
+    fi
+    
+    # Initialize the cluster
+    log_info "Starting cluster initialization..."
+    if kubeadm init --config "$config_file" --upload-certs --v=5; then
+        log_info "✓ Cluster initialization completed successfully"
+    else
+        log_error "Cluster initialization failed"
+        log_error "Debug information:"
+        journalctl -u kubelet --no-pager -l | tail -20 || true
+        return 1
+    fi
+    
+    # Set up kubectl access
+    export KUBECONFIG=/etc/kubernetes/admin.conf
+    
+    # Verify cluster is accessible
+    if kubectl cluster-info >/dev/null 2>&1; then
+        log_info "✓ Cluster is accessible via kubectl"
+    else
+        log_error "Cluster is not accessible after initialization"
+        return 1
+    fi
+    
+    # Store cluster join information in SSM
+    store_join_information
+    
+    return 0
+}
+
+# =================================================================
+# JOIN INFORMATION MANAGEMENT
+# =================================================================
+store_join_information() {
+    log_info "=== Storing Join Information ==="
+    
+    # Generate join command
+    log_info "Generating join command..."
+    local join_cmd=""
+    if join_cmd=$(kubeadm token create --print-join-command 2>/dev/null); then
+        log_info "✓ Join command generated"
+    else
+        log_error "Failed to generate join command"
+        return 1
+    fi
+    
+    # Generate certificate key for control plane joins
+    log_info "Generating certificate key..."
+    local cert_key=""
+    if cert_key=$(kubeadm init phase upload-certs --upload-certs 2>/dev/null | tail -1); then
+        log_info "✓ Certificate key generated"
+    else
+        log_error "Failed to generate certificate key"
+        return 1
+    fi
+    
+    # Store in SSM Parameter Store
+    log_info "Storing join command in SSM..."
+    if aws ssm put-parameter --name "$SSM_JOIN_COMMAND_PATH" \
+         --value "$join_cmd" --type "SecureString" --overwrite \
+         --region "$INSTANCE_REGION" >/dev/null 2>&1; then
+        log_info "✓ Join command stored in SSM"
+    else
+        log_error "Failed to store join command in SSM"
+        return 1
+    fi
+    
+    log_info "Storing certificate key in SSM..."
+    if aws ssm put-parameter --name "$SSM_CERTIFICATE_KEY_PATH" \
+         --value "$cert_key" --type "SecureString" --overwrite \
+         --region "$INSTANCE_REGION" >/dev/null 2>&1; then
+        log_info "✓ Certificate key stored in SSM"
+    else
+        log_error "Failed to store certificate key in SSM"
+        return 1
+    fi
+    
+    log_info "Join information stored successfully"
+    return 0
+}
+
+# =================================================================
+# SECONDARY CONTROLLER JOIN
+# =================================================================
+join_secondary_controller() {
+    log_info "=== Joining as Secondary Controller ==="
+    
+    # Wait for join parameters to be available
+    log_info "Waiting for join parameters from primary controller..."
+    
+    local join_cmd=""
+    local cert_key=""
+    local max_attempts=40
+    local wait_interval=15
+    
+    for attempt in $(seq 1 $max_attempts); do
+        log_info "Attempt $attempt/$max_attempts to retrieve join parameters..."
+        
+        # Try to get join command
+        if join_cmd=$(aws ssm get-parameter --name "$SSM_JOIN_COMMAND_PATH" \
+                        --with-decryption --query Parameter.Value --output text \
+                        --region "$INSTANCE_REGION" 2>/dev/null) && [[ -n "$join_cmd" ]]; then
+            
+            # Try to get certificate key
+            if cert_key=$(aws ssm get-parameter --name "$SSM_CERTIFICATE_KEY_PATH" \
+                            --with-decryption --query Parameter.Value --output text \
+                            --region "$INSTANCE_REGION" 2>/dev/null) && [[ -n "$cert_key" ]]; then
+                
+                log_info "✓ Join parameters retrieved successfully"
+                break
+            fi
+        fi
+        
+        if [ $attempt -eq $max_attempts ]; then
+            log_error "Timeout waiting for join parameters after $((max_attempts * wait_interval)) seconds"
+            return 1
+        fi
+        
+        log_info "Join parameters not ready, waiting $${wait_interval}s..."
+        sleep $wait_interval
+    done
+    
+    # Parse join command to extract components
+    local join_args=""
+    join_args=$(echo "$join_cmd" | sed 's/kubeadm join //')
+    
+    log_info "Joining cluster as control plane node..."
+    log_info "Join target: $(echo $join_args | awk '{print $1}')"
+    
+    # Perform the join operation
+    if kubeadm join $join_args --control-plane --certificate-key "$cert_key" --v=5; then
+        log_info "✓ Successfully joined cluster as secondary controller"
+    else
+        log_error "Failed to join cluster"
+        log_error "Debug information:"
+        journalctl -u kubelet --no-pager -l | tail -20 || true
+        return 1
+    fi
+    
+    # Verify join was successful
+    export KUBECONFIG=/etc/kubernetes/admin.conf
+    if kubectl cluster-info >/dev/null 2>&1; then
+        log_info "✓ Successfully joined cluster and can access API"
+    else
+        log_warn "Joined cluster but kubectl access may not be ready yet"
+    fi
+    
+    return 0
+}
+
+# =================================================================
+# CLUSTER VALIDATION
+# =================================================================
+validate_cluster() {
+    log_info "=== Validating Cluster Configuration ==="
+    
+    # Set kubeconfig
+    export KUBECONFIG=/etc/kubernetes/admin.conf
+    
+    # Basic cluster info
+    log_info "Cluster information:"
+    if kubectl cluster-info >/dev/null 2>&1; then
+        kubectl cluster-info | while IFS= read -r line; do
+            log_info "  $line"
+        done
+    else
+        log_warn "Could not retrieve cluster info"
+    fi
+    
+    # Node status
+    log_info "Node status:"
+    if kubectl get nodes >/dev/null 2>&1; then
+        kubectl get nodes -o wide | while IFS= read -r line; do
+            log_info "  $line"
+        done
+    else
+        log_warn "Could not retrieve node status"
+    fi
+    
+    # System pods status
+    log_info "System pods status:"
+    if kubectl get pods -n kube-system >/dev/null 2>&1; then
+        kubectl get pods -n kube-system | while IFS= read -r line; do
+            log_info "  $line"
+        done
+    else
+        log_warn "Could not retrieve system pods status"
+    fi
+    
+    return 0
+}
+
+# =================================================================
+# MAIN EXECUTION
+# =================================================================
+main() {
+    log_info "Starting control plane configuration..."
+    
+    # Get instance information
+    if ! get_instance_info; then
+        log_error "Failed to retrieve instance information"
+        return 1
+    fi
+    
+    # Determine controller role
+    if ! determine_controller_role; then
+        log_error "Failed to determine controller role"
+        return 1
+    fi
+    
+    # Execute role-specific logic
+    if [[ "$K8S_ROLE" == "primary" ]]; then
+        log_info "Configuring as PRIMARY controller"
+        
+        # Generate kubeadm config
+        if ! generate_kubeadm_config; then
+            log_error "Failed to generate kubeadm configuration"
+            return 1
+        fi
+        
+        # Initialize cluster
+        if ! initialize_primary_controller; then
+            log_error "Failed to initialize primary controller"
+            return 1
+        fi
+        
+    elif [[ "$K8S_ROLE" == "secondary" ]]; then
+        log_info "Configuring as SECONDARY controller"
+        
+        # Join existing cluster
+        if ! join_secondary_controller; then
+            log_error "Failed to join as secondary controller"
+            return 1
+        fi
+        
+    else
+        log_error "Unknown controller role: $K8S_ROLE"
+        return 1
+    fi
+    
+    # Validate cluster configuration
+    validate_cluster || log_warn "Cluster validation had issues"
+    
+    log_info "=== Control Plane Configuration Completed Successfully ==="
+    log_info "Role: $K8S_ROLE"
+    log_info "Instance IP: $INSTANCE_IP"
+    log_info "Cluster: $CLUSTER_NAME"
+    
+    return 0
+}
+
+# Execute main function
+main "$@"

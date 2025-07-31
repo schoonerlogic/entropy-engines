@@ -89,8 +89,8 @@ locals {
         k8s_package_version_string = local.k8s_package_version_string
       }
     },
-    "02-configure-control-plane" = {
-      template_path = "${path.module}/templates/configure-control-plane.sh.tftpl"
+    "02-install-kubernetes" = {
+      template_path = "${path.module}/templates/install-kubernetes.sh.tftpl"
       vars = {
         node_index               = 0 # revisit for multiple control plane nodes
         cluster_name             = local.cluster_name
@@ -101,10 +101,15 @@ locals {
         ssm_certificate_key_path = local.ssm_certificate_key_path
       }
     },
-    "03-k8s-controller-setup" = {
-      template_path = "${path.module}/templates/k8s-controller-setup.sh.tftpl",
+    "03-install-cni" = {
+      template_path = "${path.module}/templates/install-cni.sh.tftpl",
       vars = {
         k8s_user = local.k8s_user
+      }
+    },
+    "04-install-cluster-addons" = {
+      template_path = "${path.module}/templates/install-cluster-addons.sh.tftpl",
+      vars = {
       }
     },
   }
@@ -152,7 +157,7 @@ resource "aws_launch_template" "controller_lt" {
   key_name = local.ssh_key_name
 
   # User data for self-bootstrapping control plane
-  user_data = base64encode(templatefile("${path.module}/templates/entrypoint.sh.tftpl", {
+  user_data = base64encode(templatefile("${path.module}/templates/k8s-setup-main.sh.tftpl", {
     s3_bucket_name = var.k8s_scripts_bucket_name
   }))
 

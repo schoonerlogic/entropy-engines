@@ -3,14 +3,86 @@
 
 set -euxo pipefail 
 
-wait_for_apt_lock() {
-    echo "Waiting for apt lock to be released..."
-    while fuser /var/lib/dpkg/lock-frontend >/dev/null 2>&1 || fuser /var/lib/apt/lists/lock >/dev/null 2>&1; do
-        echo "Apt is locked by another process. Waiting 10 seconds..."
+# Comprehensive wait function (use ONCE at start)
+wait_for_apt_lock_comprehensive() {
+    echo "Comprehensive apt lock wait..."
+    local max_attempts=60  # 10 minutes
+    local attempt=0
+    
+    while [ $attempt -lt $max_attempts ]; do
+        if ! fuser /var/lib/dpkg/lock-frontend >/dev/null 2>&1 && \
+           ! fuser /var/lib/apt/lists/lock >/dev/null 2>&1 && \
+           ! fuser /var/cache/apt/archives/lock >/dev/null 2>&1 && \
+           ! fuser /var/lib/dpkg/lock >/dev/null 2>&1; then
+            
+            if ! pgrep -f "apt|dpkg|unattended-upgrade" >/dev/null 2>&1; then
+                echo "All apt locks released, proceeding..."
+                return 0
+            fi
+        fi
+        
+        echo "Apt locked (attempt $((attempt + 1))/$max_attempts). Waiting 10 seconds..."
+        lsof /var/lib/dpkg/lock-frontend /var/lib/apt/lists/lock 2>/dev/null || true
         sleep 10
+        ((attempt++))
     done
-    echo "Apt lock released, proceeding..."
+    
+    echo "ERROR: Could not acquire apt lock after $max_attempts attempts"
+    return 1
 }
+
+# Quick wait function (use BEFORE each apt command)
+wait_for_apt_lock_quick() {
+    local max_attempts=12  # 2 minutes max
+    local attempt=0
+    
+    while [ $attempt -lt $max_attempts ]; do
+        if ! fuser /var/lib/dpkg/lock-frontend >/dev/null 2>&1 && \
+           ! fuser /var/lib/apt/lists/lock >/dev/null 2>&1; then
+            return 0
+        fi
+        
+        echo "Quick apt lock check (attempt $((attempt + 1))/$max_attempts)..."
+        sleep 10
+        ((attempt++))
+    done
+    
+    echo "WARNING: Quick apt lock check failed, trying anyway..."
+    return 1
+}
+
+# Wait for unattended-upgrades (use ONCE at start)
+wait_for_unattended_upgrades() {
+    echo "Waiting for unattended-upgrades to complete..."
+    local max_attempts=30
+    local attempt=0
+    
+    while [ $attempt -lt $max_attempts ]; do
+        if ! pgrep -f unattended-upgrade >/dev/null 2>&1; then
+            echo "Unattended-upgrades completed"
+            return 0
+        fi
+        
+        echo "Unattended-upgrades running (attempt $((attempt + 1))/$max_attempts)..."
+        sleep 10
+        ((attempt++))
+    done
+    
+    echo "WARNING: Unattended-upgrades timeout"
+    return 1
+}
+
+
+sleep 30  # Let the system settle
+wait_for_unattended_upgrades
+wait_for_apt_lock_comprehensive
+
+# ============================
+# MAIN SCRIPT EXECUTION 
+# ============================
+
+echo "=== Kubernetes Package Installation ==="
+
 sudo mkdir -p /var/log/terraform-provisioning
 sudo chown "$(whoami):$(whoami)" /var/log/terraform-provisioning
 
@@ -125,10 +197,11 @@ sysctl --system # Reload sysctl settings
 
 # Install dependencies
 export DEBIAN_FRONTEND=noninteractive
-wait_for_apt_lock
+
+wait_for_apt_lock_quick() {
 apt-get update
    
-wait_for_apt_lock
+wait_for_apt_lock_quick() {
 apt-get install -y apt-transport-https ca-certificates curl gpg jq
 
 # Create keyring directory and download the GPG key
@@ -143,7 +216,7 @@ echo "deb [signed-by=$K8S_KEYRING_FILE] https://pkgs.k8s.io/core:/stable:/v$K8S_
 
 # Update APT and install Kubernetes packages
 echo "Installing Kubernetes packages: kubelet=$K8S_PKG_VERSION_STRING, kubeadm=$K8S_PKG_VERSION_STRING, kubectl=$K8S_PKG_VERSION_STRING"
-wait_for_apt_lock
+wait_for_apt_lock_quick() {
 sudo apt-get update
 
 if ! sudo apt-get install -y \
@@ -158,7 +231,7 @@ fi
 
 apt-mark hold kubelet kubeadm kubectl
 
-wait_for_apt_lock
+wait_for_apt_lock_quick() {
 apt-get install -y containerd
 echo "Configuring containerd for Kubernetes..."
 

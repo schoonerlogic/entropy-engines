@@ -115,3 +115,12 @@ output "k8s_scripts_bucket" {
 }
 
 
+output "ssm_join_command_path" {
+  description = "SSM parameter path for worker join command"
+  value       = module.controllers.ssm_join_command_path
+}
+
+output "ssm_certificate_key_path" {
+  description = "SSM parameter path for certificate key"
+  value       = module.controllers.ssm_certificate_key_path
+}

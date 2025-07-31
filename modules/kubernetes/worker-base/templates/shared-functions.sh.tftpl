@@ -1,0 +1,160 @@
+#!/bin/bash
+# /tmp/k8s_scripts/00-shared-functions.sh
+# Shared functions for all K8s setup scripts
+
+# Global settings that all scripts should use
+set -euxo pipefail
+export DEBIAN_FRONTEND=noninteractive
+
+# Global variables
+SYSTEM_PREPARED=false
+
+# Logging functions
+log_info() {
+    echo "[INFO $(date '+%Y-%m-%d %H:%M:%S')] $*"
+}
+
+log_warn() {
+    echo "[WARN $(date '+%Y-%m-%d %H:%M:%S')] $*"
+}
+
+log_error() {
+    echo "[ERROR $(date '+%Y-%m-%d %H:%M:%S')] $*"
+}
+
+# One-time system preparation (run only once across all scripts)
+prepare_system_once() {
+    if [ "$SYSTEM_PREPARED" = "true" ]; then
+        log_info "System already prepared, skipping..."
+        return 0
+    fi
+    
+    log_info "=== One-time System Preparation ==="
+    
+    # Wait for system to settle
+    log_info "Letting system settle..."
+    sleep 30
+    
+    # Disable unattended-upgrades to prevent conflicts
+    log_info "Disabling unattended-upgrades..."
+    systemctl stop unattended-upgrades.service || true
+    systemctl disable unattended-upgrades.service || true
+    systemctl stop apt-daily.timer || true
+    systemctl disable apt-daily.timer || true
+    systemctl stop apt-daily-upgrade.timer || true
+    systemctl disable apt-daily-upgrade.timer || true
+    pkill -f unattended-upgrade || true
+    sleep 5
+    
+    # Clear any stale locks
+    rm -f /var/lib/apt/lists/lock || true
+    rm -f /var/cache/apt/archives/lock || true
+    rm -f /var/lib/dpkg/lock-frontend || true
+    rm -f /var/lib/dpkg/lock || true
+    
+    # Initial apt update
+    log_info "Initial apt update..."
+    retry_apt "apt-get update"
+    
+    # Mark system as prepared
+    SYSTEM_PREPARED=true
+    export SYSTEM_PREPARED
+    
+    log_info "System preparation complete"
+}
+
+# Robust apt retry function
+retry_apt() {
+    local cmd="$*"
+    local attempts=3
+    local delay=15
+    
+    for i in $(seq 1 $attempts); do
+        log_info "Executing: $cmd (attempt $i/$attempts)"
+        
+        # Quick lock check before each attempt
+        if [ $i -gt 1 ]; then
+            quick_apt_check || true
+        fi
+        
+        if eval "$cmd"; then
+            log_info "Command succeeded: $cmd"
+            return 0
+        fi
+        
+        if [ $i -lt $attempts ]; then
+            log_warn "Command failed, retrying in $delay seconds..."
+            sleep $delay
+        fi
+    done
+    
+    log_error "Command failed after $attempts attempts: $cmd"
+    return 1
+}
+
+# Quick apt availability check
+quick_apt_check() {
+    local max_wait=60  # 1 minute
+    local count=0
+    
+    while [ $count -lt $max_wait ]; do
+        if ! fuser /var/lib/dpkg/lock-frontend >/dev/null 2>&1 && \
+           ! fuser /var/lib/apt/lists/lock >/dev/null 2>&1; then
+            return 0
+        fi
+        
+        log_info "Waiting for apt lock... ($count/$max_wait)"
+        sleep 5
+        count=$((count + 5))
+    done
+    
+    log_warn "Apt lock check timeout, proceeding anyway"
+    return 1
+}
+
+# Safe package installation wrapper
+install_packages() {
+    local packages="$*"
+    log_info "Installing packages: $packages"
+    retry_apt "apt-get install -y $packages"
+}
+
+# Safe service management
+manage_service() {
+    local action="$1"
+    local service="$2"
+    
+    log_info "Service $action: $service"
+    systemctl "$action" "$service" || {
+        log_warn "Failed to $action $service, continuing..."
+        return 1
+    }
+}
+
+# Cleanup function (can be called at end of final script)
+cleanup_system() {
+    log_info "=== System Cleanup ==="
+    
+    # Re-enable unattended-upgrades if desired
+    # systemctl enable unattended-upgrades.service || true
+    # systemctl start unattended-upgrades.service || true
+    
+    log_info "Cleanup complete"
+}
+
+# Error handling
+handle_error() {
+    local line_number="$1"
+    local error_code="$2"
+    log_error "Script failed at line $line_number with exit code $error_code"
+    log_error "Last command: $BASH_COMMAND"
+    
+    # Optional: Add cleanup or debugging info here
+    log_error "Current apt processes:"
+    ps aux | grep -E "(apt|dpkg|unattended)" | grep -v grep || true
+}
+
+# Set up error trap
+trap 'handle_error ${LINENO} $?' ERR
+
+log_info "Shared functions loaded successfully"
