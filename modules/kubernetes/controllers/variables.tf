@@ -65,6 +65,18 @@ variable "k8s_apt_package_suffix" {
   type        = string
 }
 
+variable "k8s_package_version_string" {
+  description = "Full Kubernetes package version string for apt (e.g., 1.33.1-00)"
+  type        = string
+
+  validation {
+    condition     = can(regex("^[0-9]+\\.[0-9]+\\.[0-9]+-[0-9]+$", var.k8s_package_version_string))
+    error_message = "Package version must be in format 'major.minor.patch-suffix' (e.g., 1.33.1-00)."
+  }
+}
+
+
+
 variable "pod_cidr_block" {
   description = "CIDR block for Kubernetes pods"
   type        = string
@@ -127,8 +139,15 @@ variable "ssh_private_key_path" {
   type        = string
 }
 
+variable "ssm_join_command_path" {
+  description = "SSM Parameter Store path for the Kubernetes join command"
+  type        = string
+}
 
-
+variable "ssm_certificate_key_path" {
+  description = "Certificate for securing parameter join key"
+  type        = string
+}
 #===============================================================================
 # Block Device Mappings
 #===============================================================================

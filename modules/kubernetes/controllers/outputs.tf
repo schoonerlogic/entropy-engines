@@ -145,16 +145,6 @@ output "k8s_scripts_bucket" {
 
 output "bootstrap_script_s3_uri" {
   description = "S3 URI of the control plane bootstrap script"
-  value       = "s3://${aws_s3_object.control_plane_setup_scripts["01-install-user-and-tooling"].bucket}/${aws_s3_object.control_plane_setup_scripts["01-install-user-and-tooling"].key}"
-}
-
-output "bootstrap_script_etag" {
-  description = "ETag of the control plane bootstrap script in S3"
-  value       = aws_s3_object.control_plane_setup_scripts["01-install-user-and-tooling"].etag
-}
-
-output "self_bootstrapping" {
-  description = "Indicates that control plane uses self-bootstrapping (no provisioners)"
-  value       = true
+  value       = "s3://${local.script_base_path}"
 }
 

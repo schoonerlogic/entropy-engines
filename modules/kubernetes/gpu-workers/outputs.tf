@@ -22,10 +22,10 @@ output "instance_profile_name" {
 
 output "instance_ids" {
   description = "List of GPU worker instance IDs"
-  value       = module.gpu_worker_base.instance_ids
+  value       = module.gpu_worker_base.worker_instance_ids
 }
 
-output "private_ips" {
+output "instance_private_ips" {
   description = "Private IP addresses of the GPU worker instances."
-  value       = module.gpu_worker_base.private_ips
+  value       = module.gpu_worker_base.worker_instance_private_ips
 }

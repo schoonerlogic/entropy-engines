@@ -25,7 +25,7 @@ locals {
   k8s_user                   = var.k8s_user
   k8s_major_minor_stream     = var.k8s_major_minor_stream
   k8s_full_patch_version     = var.k8s_full_patch_version
-  k8s_package_version_string = "${var.k8s_full_patch_version}-${var.k8s_apt_package_suffix}"
+  k8s_package_version_string = var.k8s_package_version_string
 
   # IAM configuration
   control_plane_role_name = var.control_plane_role_name
@@ -55,6 +55,7 @@ locals {
   ssm_certificate_key_path = "/entropy-engines/${local.cluster_name}/join-command/certificate/key"
 
   # Script selection
+  scripts_bucket_name                = var.k8s_scripts_bucket_name
   control_plane_bootstrap_script     = "control-plane-bootstrap.sh.tftpl"
   control_plane_bootstrap_script_key = "cp-bootstrap.sh"
 
@@ -68,7 +69,7 @@ locals {
 }
 
 #===============================================================================
-# Data Sources
+# Data Sourcesu
 #===============================================================================
 
 # Get current AWS account and region
@@ -79,56 +80,97 @@ data "aws_region" "current" {}
 #===============================================================================
 
 locals {
-  # Define each script, its template, and its specific variables
-  control_plane_scripts = {
-    "01-install-user-and-tooling" = {
-      template_path = "${path.module}/templates/install-user-and-tooling.sh.tftpl"
-      vars = {
-        k8s_user                   = local.k8s_user
-        k8s_major_minor_stream     = local.k8s_major_minor_stream
-        k8s_package_version_string = local.k8s_package_version_string
-      }
-    },
-    "02-install-kubernetes" = {
-      template_path = "${path.module}/templates/install-kubernetes.sh.tftpl"
-      vars = {
-        node_index               = 0 # revisit for multiple control plane nodes
-        cluster_name             = local.cluster_name
-        k8s_full_patch_version   = local.k8s_full_patch_version
-        pod_cidr_block           = local.pod_cidr_block
-        service_cidr_block       = local.service_cidr_block
-        ssm_join_command_path    = local.ssm_join_command_path
-        ssm_certificate_key_path = local.ssm_certificate_key_path
-      }
-    },
-    "03-install-cni" = {
-      template_path = "${path.module}/templates/install-cni.sh.tftpl",
-      vars = {
-        k8s_user = local.k8s_user
-      }
-    },
-    "04-install-cluster-addons" = {
-      template_path = "${path.module}/templates/install-cluster-addons.sh.tftpl",
-      vars = {
-      }
-    },
+  # Script base path
+  script_base_path = "${path.module}/../s3-setup-scripts"
+
+  # entrypoint_vars 
+  entrypoint_vars = {
+    s3_bucket = local.scripts_bucket_name
   }
 
-  rendered_s3_scripts = {
-    for key, config in local.control_plane_scripts : key => templatefile(config.template_path, config.vars)
+  # Shared template variables
+  shared_template_vars = {
+    k8s_user                   = local.k8s_user
+    k8s_major_minor_stream     = local.k8s_major_minor_stream
+    k8s_package_version_string = local.k8s_package_version_string
   }
+
+  # Controller-specific template variables
+  controller_template_vars = merge(local.shared_template_vars, {
+    cluster_name             = local.cluster_name
+    k8s_full_patch_version   = local.k8s_full_patch_version
+    pod_cidr_block           = local.pod_cidr_block
+    service_cidr_block       = local.service_cidr_block
+    ssm_join_command_path    = local.ssm_join_command_path
+    ssm_certificate_key_path = local.ssm_certificate_key_path
+    aws_region               = data.aws_region.current.name
+    bucket_name              = local.scripts_bucket_name
+  })
+
+  # Shared scripts (used by controllers)
+  shared_scripts = {
+    "00-shared-functions" = {
+      template_path = "${local.script_base_path}/shared/00-shared-functions.sh.tftpl"
+      vars          = {}
+      s3_key        = "scripts/00-shared-functions.sh"
+    }
+    "01-install-user-and-tooling" = {
+      template_path = "${local.script_base_path}/shared/01-install-user-and-tooling.sh.tftpl"
+      vars          = local.shared_template_vars
+      s3_key        = "scripts/01-install-user-and-tooling.sh"
+    }
+    "entrypoint" = {
+      template_path = "${local.script_base_path}/shared/entrypoint.sh.tftpl"
+      vars = {
+        s3_bucket_name = local.scripts_bucket_name
+      }
+      s3_key = "scripts/entrypoint.sh"
+    }
+  }
+
+  # Controller-specific scripts
+  controller_scripts = {
+    "k8s-setup-main" = {
+      template_path = "${local.script_base_path}/controllers/k8s-setup-main.sh.tftpl"
+      vars          = {}
+      s3_key        = "scripts/controllers/k8s-setup-main.sh"
+    }
+    "02-install-kubernetes" = {
+      template_path = "${local.script_base_path}/controllers/02-install-kubernetes.sh.tftpl"
+      vars          = local.controller_template_vars
+      s3_key        = "scripts/controllers/02-install-kubernetes.sh"
+    }
+    "03-install-cni" = {
+      template_path = "${local.script_base_path}/controllers/04-install-cni.sh.tftpl"
+      vars          = local.controller_template_vars
+      s3_key        = "scripts/controllers/04-install-cni.sh"
+    }
+    "04-install-addons" = {
+      template_path = "${local.script_base_path}/controllers/05-install-addons.sh.tftpl"
+      vars          = local.controller_template_vars
+      s3_key        = "scripts/controllers/05-install-addons.sh"
+    }
+  }
+
+  # Combined for upload
+  all_controller_scripts = merge(local.shared_scripts, local.controller_scripts)
 }
 
-resource "aws_s3_object" "control_plane_setup_scripts" {
-  for_each = local.rendered_s3_scripts
+# Upload controller scripts
+resource "aws_s3_object" "controller_scripts" {
+  for_each = local.all_controller_scripts
 
-  bucket = var.k8s_scripts_bucket_name
+  bucket  = local.scripts_bucket_name
+  key     = each.value.s3_key
+  content = length(each.value.vars) > 0 ? templatefile(each.value.template_path, each.value.vars) : file(each.value.template_path)
 
-  key = "scripts/${each.key}.sh"
+  content_type = "text/plain"
 
-  content = each.value
-
-  etag = md5(each.value)
+  tags = {
+    Name        = each.key
+    Environment = var.environment
+    Type        = "controller-script"
+  }
 }
 
 #===============================================================================
@@ -157,9 +199,10 @@ resource "aws_launch_template" "controller_lt" {
   key_name = local.ssh_key_name
 
   # User data for self-bootstrapping control plane
-  user_data = base64encode(templatefile("${path.module}/templates/k8s-setup-main.sh.tftpl", {
-    s3_bucket_name = var.k8s_scripts_bucket_name
-  }))
+  user_data = base64encode(templatefile(
+    local.shared_scripts.entrypoint.template_path,
+    local.shared_scripts.entrypoint.vars
+  ))
 
   iam_instance_profile {
     name = aws_iam_instance_profile.controller_profile.name
@@ -289,7 +332,7 @@ resource "aws_autoscaling_group" "controller_asg" {
 
   depends_on = [
     aws_iam_instance_profile.controller_profile,
-    aws_s3_object.control_plane_setup_scripts
+    aws_s3_object.controller_scripts
   ]
 }
 

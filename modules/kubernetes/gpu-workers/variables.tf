@@ -1,45 +1,119 @@
-# modules/cpu-workers/variables.tf
-# ✅ Clean, simple interface - exactly what this module needs
+# modules/kubernetes/gpu-workers/variables.tf
+# Variables for GPU worker module
 
 #===============================================================================
-# Core Configuration
+# Cluster Configuration
 #===============================================================================
 
 variable "cluster_name" {
   description = "Name of the Kubernetes cluster"
   type        = string
-}
 
-variable "worker_type" {
-  description = "Type of worker (cpu or gpu)"
-  type        = string
   validation {
-    condition     = contains(["cpu", "gpu"], var.worker_type)
-    error_message = "Worker type must be either 'cpu' or 'gpu'."
+    condition     = can(regex("^[a-zA-Z0-9-]+$", var.cluster_name))
+    error_message = "Cluster name must contain only alphanumeric characters and hyphens."
   }
 }
 
 variable "environment" {
-  description = "Environment name (dev, staging, prod, etc.)"
+  description = "Environment name (e.g., dev, staging, prod)"
+  type        = string
+  default     = "dev"
+}
+
+#===============================================================================
+# Kubernetes Configuration
+#===============================================================================
+
+variable "k8s_user" {
+  description = "Username for Kubernetes operations"
+  type        = string
+  default     = "k8s-admin"
+}
+
+variable "k8s_major_minor_stream" {
+  description = "Kubernetes major.minor version stream (e.g., 1.33)"
+  type        = string
+
+  validation {
+    condition     = can(regex("^[0-9]+\\.[0-9]+$", var.k8s_major_minor_stream))
+    error_message = "Kubernetes version stream must be in format 'major.minor' (e.g., 1.33)."
+  }
+}
+
+variable "k8s_package_version_string" {
+  description = "Full Kubernetes package version string for apt (e.g., 1.33.1-00)"
+  type        = string
+
+  validation {
+    condition     = can(regex("^[0-9]+\\.[0-9]+\\.[0-9]+-[0-9]+$", var.k8s_package_version_string))
+    error_message = "Package version must be in format 'major.minor.patch-suffix' (e.g., 1.33.1-00)."
+  }
+}
+
+variable "ssm_join_command_path" {
+  description = "SSM Parameter Store path for the Kubernetes join command"
   type        = string
 }
+
 #===============================================================================
-# Instance Configuration
+# S3 Configuration
 #===============================================================================
 
-variable "instance_types" {
-  description = "List of instance types to use"
-  type        = list(string)
+variable "k8s_scripts_bucket_name" {
+  description = "Name of the S3 bucket containing Kubernetes setup scripts"
+  type        = string
 }
 
+#===============================================================================
+# GPU Worker Instance Configuration
+#===============================================================================
+
+variable "gpu_instance_types" {
+  description = "List of EC2 instance types for GnU workers"
+  type        = list(string)
+  default     = ["m6i.large", "m6i.xlarge", "m5.large", "m5.xlarge"]
+
+  validation {
+    condition     = length(var.gpu_instance_types) > 0
+    error_message = "At least one GPU instance type must be specified."
+  }
+}
+
+variable "gpu_on_demand_count" {
+  description = "Number of on-demand GPU worker instances"
+  type        = number
+  default     = 1
+
+  validation {
+    condition     = var.gpu_on_demand_count >= 0
+    error_message = "On-demand count must be non-negative."
+  }
+}
+
+variable "gpu_spot_count" {
+  description = "Number of spot GPU worker instances"
+  type        = number
+  default     = 0
+
+  validation {
+    condition     = var.gpu_spot_count >= 0
+    error_message = "Spot count must be non-negative."
+  }
+}
+
+#===============================================================================
+# Instance Requirements (Alternative to instance_types)
+#===============================================================================
+
 variable "use_instance_requirements" {
-  description = "Whether to use instance requirements instead of specific types"
+  description = "Whether to use instance requirements instead of specific instance types"
   type        = bool
   default     = false
 }
 
 variable "instance_requirements" {
-  description = "Instance requirements for mixed instances policy"
+  description = "Instance requirements for GPU workers (used when use_instance_requirements is true)"
   type = object({
     vcpu_count = object({
       min = number
@@ -49,113 +123,62 @@ variable "instance_requirements" {
       min = number
       max = number
     })
-    cpu_architectures             = optional(list(string))
-    excluded_instance_generations = optional(list(string))
-    excluded_instance_types       = optional(list(string))
-    instance_categories           = optional(list(string))
-    burstable_performance         = optional(string)
-    local_storage                 = optional(string)
-    local_storage_types           = optional(list(string))
-    network_bandwidth_gbps = optional(object({
-      min = optional(number)
-      max = optional(number)
-    }))
-    accelerator_count = optional(object({
-      min = optional(number)
-      max = optional(number)
-    }))
-    accelerator_manufacturers = optional(list(string))
-    accelerator_names         = optional(list(string))
-    accelerator_types         = optional(list(string))
+    gpu_architectures     = optional(list(string))
+    instance_categories   = optional(list(string))
+    burstable_performance = optional(string)
   })
   default = null
 }
 
-variable "on_demand_count" {
-  description = "Number of on-demand instances"
-  type        = number
+variable "gpu_type" {
+  description = "GPU processor type"
+  type        = string
+  default     = "nvidia"
 }
 
-variable "spot_count" {
-  description = "Number of spot instances"
-  type        = number
-}
+
+
+#===============================================================================
+# Infrastructure Configuration
+#===============================================================================
 
 variable "base_aws_ami" {
-  description = "AMI ID for gpu worker instances"
+  description = "AMI ID for GPU worker instances"
   type        = string
+
+  validation {
+    condition     = can(regex("^ami-[0-9a-f]{8,}$", var.base_aws_ami))
+    error_message = "AMI ID must be in the format ami-xxxxxxxx."
+  }
 }
-
-variable "base_gpu_ami" {
-  description = "AMI ID for gpu worker instances"
-  type        = string
-}
-
-#===============================================================================
-# Kubernetes Configuration
-#===============================================================================
-
-variable "k8s_user" {
-  description = "Kubernetes user for the cluster"
-  type        = string
-}
-
-variable "k8s_major_minor_stream" {
-  description = "Kubernetes version (major.minor)"
-  type        = string
-}
-
-variable "k8s_full_patch_version" {
-  description = "Full Kubernetes patch version"
-  type        = string
-}
-
-variable "k8s_apt_package_suffix" {
-  description = "APT package suffix for Kubernetes"
-  type        = string
-}
-
-
-
-#===============================================================================
-# Networking
-#===============================================================================
 
 variable "subnet_ids" {
-  description = "List of subnet IDs for worker instances"
+  description = "List of subnet IDs where GPU workers will be launched"
   type        = list(string)
+
+  validation {
+    condition     = length(var.subnet_ids) > 0
+    error_message = "At least one subnet ID must be provided."
+  }
 }
 
 variable "security_group_ids" {
-  description = "List of security group IDs"
+  description = "List of security group IDs for GPU workers"
   type        = list(string)
+
+  validation {
+    condition     = length(var.security_group_ids) > 0
+    error_message = "At least one security group ID must be provided."
+  }
 }
 
 variable "ssh_key_name" {
-  description = "Name of the SSH key pair"
+  description = "Name of the AWS key pair for SSH access to GPU workers"
   type        = string
 }
-
-#===============================================================================
-# IAM
-#===============================================================================
 
 variable "worker_role_name" {
-  description = "Name of the IAM role for worker instances"
-  type        = string
-}
-
-variable "iam_policy_version" {
-  description = "Version of the IAM policy"
-  type        = string
-}
-
-#===============================================================================
-# S3
-#===============================================================================
-
-variable "k8s_scripts_bucket_name" {
-  description = "Name of the S3 bucket containing bootstrap scripts"
+  description = "Name of the IAM role for GPU worker instances"
   type        = string
 }
 
@@ -164,62 +187,84 @@ variable "k8s_scripts_bucket_name" {
 #===============================================================================
 
 variable "min_size" {
-  description = "Minimum size of ASG (defaults to total instance count)"
+  description = "Minimum size of the GPU worker Auto Scaling Group"
   type        = number
   default     = null
 }
 
 variable "max_size" {
-  description = "Maximum size of ASG (defaults to total instance count)"
+  description = "Maximum size of the GPU worker Auto Scaling Group"
   type        = number
   default     = null
 }
 
 variable "health_check_type" {
-  description = "Type of health check (EC2 or ELB)"
+  description = "Type of health check for the Auto Scaling Group"
   type        = string
   default     = "EC2"
+
+  validation {
+    condition     = contains(["EC2", "ELB"], var.health_check_type)
+    error_message = "Health check type must be either 'EC2' or 'ELB'."
+  }
 }
 
 variable "health_check_grace_period" {
   description = "Health check grace period in seconds"
   type        = number
-}
+  default     = 300
 
-variable "min_healthy_percentage" {
-  description = "Minimum healthy percentage during instance refresh"
-  type        = number
-}
-
-variable "instance_warmup" {
-  description = "Instance warmup time in seconds"
-  type        = number
+  validation {
+    condition     = var.health_check_grace_period >= 0
+    error_message = "Health check grace period must be non-negative."
+  }
 }
 
 variable "capacity_timeout" {
-  description = "Timeout for capacity changes"
+  description = "Maximum time to wait for the desired capacity to be reached"
   type        = string
-  default     = "15m"
-}
-
-variable "instance_refresh_triggers" {
-  description = "List of triggers for instance refresh"
-  type        = list(string)
-  default     = ["tag"]
+  default     = "10m"
 }
 
 #===============================================================================
-# Spot Configuration
+# Spot Instance Configuration
 #===============================================================================
 
 variable "spot_allocation_strategy" {
-  description = "Spot allocation strategy"
+  description = "Strategy for allocating spot instances"
   type        = string
+  default     = "diversified"
+
+  validation {
+    condition     = contains(["lowest-price", "diversified", "capacity-optimized"], var.spot_allocation_strategy)
+    error_message = "Spot allocation strategy must be one of: lowest-price, diversified, capacity-optimized."
+  }
 }
 
-variable "spot_instance_pools" {
-  description = "Number of spot instance pools"
+#===============================================================================
+# Instance Refresh Configuration
+#===============================================================================
+
+variable "min_healthy_percentage" {
+  description = "Minimum percentage of healthy instances during instance refresh"
   type        = number
+  default     = 50
+
+  validation {
+    condition     = var.min_healthy_percentage >= 0 && var.min_healthy_percentage <= 100
+    error_message = "Min healthy percentage must be between 0 and 100."
+  }
+}
+
+variable "instance_warmup" {
+  description = "Instance warmup time in seconds during instance refresh"
+  type        = number
+  default     = 300
+
+  validation {
+    condition     = var.instance_warmup >= 0
+    error_message = "Instance warmup must be non-negative."
+  }
 }
 
 #===============================================================================
@@ -227,31 +272,98 @@ variable "spot_instance_pools" {
 #===============================================================================
 
 variable "block_device_mappings" {
-  description = "Block device mappings for instances"
+  description = "Block device mappings for GPU worker instances"
   type = list(object({
     device_name           = string
     volume_size           = number
-    volume_type           = optional(string, "gp3")
-    delete_on_termination = optional(bool, true)
-    encrypted             = optional(bool, true)
-    iops                  = optional(number, null)
-    throughput            = optional(number, null)
-    kms_key_id            = optional(string, null)
+    volume_type           = string
+    delete_on_termination = bool
+    encrypted             = bool
+    iops                  = optional(number)
+    throughput            = optional(number)
+    kms_key_id            = optional(string)
   }))
+  default = [
+    {
+      device_name           = "/dev/sda1"
+      volume_size           = 50
+      volume_type           = "gp3"
+      delete_on_termination = true
+      encrypted             = true
+      iops                  = 3000
+      throughput            = 125
+    }
+  ]
 }
 
 #===============================================================================
-# Tags
+# Tagging Configuration
 #===============================================================================
 
 variable "additional_tags" {
-  description = "Additional tags to apply to resources"
+  description = "Additional tags to apply to GPU worker resources"
   type        = map(string)
   default     = {}
 }
 
-variable "gpu_type" {
-  description = "Type of GPU (nvidia, amd, etc.)"
+variable "iam_policy_version" {
+  description = "Version of the IAM policy (for tracking updates)"
   type        = string
-  default     = "nvidia"
+  default     = "1.0"
+}
+
+#===============================================================================
+# Monitoring and Logging Configuration
+#===============================================================================
+
+variable "enable_cloudwatch_logs" {
+  description = "Whether to enable CloudWatch logging for GPU workers"
+  type        = bool
+  default     = false
+}
+
+variable "enable_notifications" {
+  description = "Whether to enable SNS notifications for GPU worker events"
+  type        = bool
+  default     = false
+}
+
+variable "log_retention_days" {
+  description = "Number of days to retain CloudWatch logs"
+  type        = number
+  default     = 7
+
+  validation {
+    condition = contains([
+      1, 3, 5, 7, 14, 30, 60, 90, 120, 150, 180, 365, 400, 545, 731, 1827, 3653
+    ], var.log_retention_days)
+    error_message = "Log retention days must be a valid CloudWatch Logs retention period."
+  }
+}
+
+#===============================================================================
+# Advanced Configuration
+#===============================================================================
+
+variable "enable_detailed_monitoring" {
+  description = "Whether to enable detailed CloudWatch monitoring for instances"
+  type        = bool
+  default     = true
+}
+
+variable "enable_instance_metadata_tags" {
+  description = "Whether to enable instance metadata tags"
+  type        = bool
+  default     = true
+}
+
+variable "metadata_hop_limit" {
+  description = "The desired HTTP PUT response hop limit for instance metadata requests"
+  type        = number
+  default     = 2
+
+  validation {
+    condition     = var.metadata_hop_limit >= 1 && var.metadata_hop_limit <= 64
+    error_message = "Metadata hop limit must be between 1 and 64."
+  }
 }

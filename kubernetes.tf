@@ -1,5 +1,12 @@
 # root - kubernetes.tf
 
+locals {
+  # Derived values
+  cluster_name               = var.kubernetes_config.cluster_name != null ? var.kubernetes_config.cluster_name : var.core_config.project
+  k8s_package_version_string = "${var.kubernetes_config.k8s_full_patch_version}-${var.kubernetes_config.k8s_apt_package_suffix}"
+}
+
+
 # Controllers Module - No Provisioners, Self-Bootstrapping
 module "controllers" {
   source = "./modules/kubernetes/controllers"
@@ -16,12 +23,16 @@ module "controllers" {
   base_aws_ami = data.aws_ami.ubuntu.id
 
   # Kubernetes configuration
-  k8s_user               = var.kubernetes_config.k8s_user
-  k8s_major_minor_stream = var.kubernetes_config.k8s_major_minor_stream
-  k8s_full_patch_version = var.kubernetes_config.k8s_full_patch_version
-  k8s_apt_package_suffix = var.kubernetes_config.k8s_apt_package_suffix
-  pod_cidr_block         = module.aws_infrastructure.pod_cidr_block
-  service_cidr_block     = module.aws_infrastructure.service_cidr_block
+  k8s_user                   = var.kubernetes_config.k8s_user
+  k8s_major_minor_stream     = var.kubernetes_config.k8s_major_minor_stream
+  k8s_full_patch_version     = var.kubernetes_config.k8s_full_patch_version
+  k8s_apt_package_suffix     = var.kubernetes_config.k8s_apt_package_suffix
+  k8s_package_version_string = local.k8s_package_version_string
+  pod_cidr_block             = module.aws_infrastructure.pod_cidr_block
+  service_cidr_block         = module.aws_infrastructure.service_cidr_block
+
+  ssm_join_command_path    = var.kubernetes_config.ssm_join.ssm_join_command_path
+  ssm_certificate_key_path = var.kubernetes_config.ssm_join.ssm_certificate_key_path
 
   # Networking
   subnet_ids         = module.aws_infrastructure.private_subnet_ids
@@ -67,10 +78,9 @@ module "controllers" {
 }
 
 locals {
-  # Derived values
-  cluster_name = var.kubernetes_config.cluster_name != null ? var.kubernetes_config.cluster_name : var.core_config.project
-
-  # CPU Worker Configuration (built from base worker_config + CPU-specific defaults)
+  # ==========================
+  # CPU Config
+  # ==========================
   cpu_worker_config = {
     # Core identification
     worker_type  = "cpu"
@@ -145,7 +155,9 @@ locals {
     )
   }
 
-  # GPU Worker Configuration (built from base worker_config + GPU-specific defaults/overrides)
+  # =================================
+  # GPU Config
+  # =================================
   gpu_worker_config = {
     # Core identification
     worker_type  = "gpu"
@@ -267,20 +279,17 @@ module "cpu_workers" {
 
   # Pass the clean, merged configuration
   cluster_name              = local.cpu_worker_config.cluster_name
-  worker_type               = local.cpu_worker_config.worker_type
-  instance_types            = local.cpu_worker_config.instance_types
   use_instance_requirements = local.cpu_worker_config.use_instance_requirements
   instance_requirements     = local.cpu_worker_config.instance_requirements
-  on_demand_count           = local.cpu_worker_config.on_demand_count
-  spot_count                = local.cpu_worker_config.spot_count
   base_aws_ami              = data.aws_ami.ubuntu.id
   environment               = var.core_config.environment
 
   # Kubernetes config (from original variables)
-  k8s_user               = var.kubernetes_config.k8s_user
-  k8s_major_minor_stream = var.kubernetes_config.k8s_major_minor_stream
-  k8s_apt_package_suffix = var.kubernetes_config.k8s_apt_package_suffix
-  k8s_full_patch_version = var.kubernetes_config.k8s_full_patch_version
+  k8s_user                   = var.kubernetes_config.k8s_user
+  k8s_major_minor_stream     = var.kubernetes_config.k8s_major_minor_stream
+  k8s_package_version_string = local.k8s_package_version_string
+
+  ssm_join_command_path = var.kubernetes_config.ssm_join.ssm_join_command_path
 
   # Networking
   subnet_ids         = module.aws_infrastructure.private_subnet_ids
@@ -304,11 +313,9 @@ module "cpu_workers" {
   min_healthy_percentage    = local.cpu_worker_config.min_healthy_percentage
   instance_warmup           = local.cpu_worker_config.instance_warmup
   capacity_timeout          = local.cpu_worker_config.capacity_timeout
-  instance_refresh_triggers = local.cpu_worker_config.instance_refresh_triggers
 
   # Spot configuration
   spot_allocation_strategy = local.cpu_worker_config.spot_allocation_strategy
-  spot_instance_pools      = local.cpu_worker_config.spot_instance_pools
 
   # Storage
   block_device_mappings = local.cpu_worker_config.block_device_mappings
@@ -317,29 +324,28 @@ module "cpu_workers" {
   additional_tags = local.cpu_worker_config.additional_tags
 }
 
+
 # GPU Workers Module
 module "gpu_workers" {
   source = "./modules/kubernetes/gpu-workers"
 
-  count = var.kubernetes_config.enable_gpu_nodes && local.gpu_worker_config.total_count > 0 ? 1 : 0
+  count = local.cpu_worker_config.total_count > 0 ? 1 : 0
 
   # Pass the clean, merged configuration
   cluster_name              = local.gpu_worker_config.cluster_name
-  worker_type               = local.gpu_worker_config.worker_type
-  instance_types            = local.gpu_worker_config.instance_types
   use_instance_requirements = local.gpu_worker_config.use_instance_requirements
   instance_requirements     = local.gpu_worker_config.instance_requirements
-  on_demand_count           = local.gpu_worker_config.on_demand_count
-  spot_count                = local.gpu_worker_config.spot_count
   base_aws_ami              = data.aws_ami.ubuntu.id
-  base_gpu_ami              = data.aws_ami.ubuntu.id
-  environment               = var.core_config.environment
+  # base_gpu_ami              = data.aws_ami.ubuntu.id
+  environment = var.core_config.environment
 
   # Kubernetes config
-  k8s_user               = var.kubernetes_config.k8s_user
-  k8s_major_minor_stream = var.kubernetes_config.k8s_major_minor_stream
-  k8s_apt_package_suffix = var.kubernetes_config.k8s_apt_package_suffix
-  k8s_full_patch_version = var.kubernetes_config.k8s_full_patch_version
+  k8s_user                   = var.kubernetes_config.k8s_user
+  k8s_major_minor_stream     = var.kubernetes_config.k8s_major_minor_stream
+  k8s_package_version_string = local.k8s_package_version_string
+
+  #SSM
+  ssm_join_command_path = var.kubernetes_config.ssm_join.ssm_join_command_path
 
   # Networking
   subnet_ids         = module.aws_infrastructure.private_subnet_ids
@@ -363,11 +369,9 @@ module "gpu_workers" {
   min_healthy_percentage    = local.gpu_worker_config.min_healthy_percentage
   instance_warmup           = local.gpu_worker_config.instance_warmup
   capacity_timeout          = local.gpu_worker_config.capacity_timeout
-  instance_refresh_triggers = local.gpu_worker_config.instance_refresh_triggers
 
   # Spot configuration
   spot_allocation_strategy = local.gpu_worker_config.spot_allocation_strategy
-  spot_instance_pools      = local.gpu_worker_config.spot_instance_pools
 
   # Storage
   block_device_mappings = local.gpu_worker_config.block_device_mappings
@@ -386,7 +390,7 @@ module "ssh_config" {
   ssh_private_key_path = var.security_config.ssh_private_key_path
 
   controller_private_ips = module.controllers.private_ips
-  worker_gpu_private_ips = length(module.gpu_workers) > 0 ? module.gpu_workers[0].private_ips : []
-  worker_cpu_private_ips = length(module.cpu_workers) > 0 ? module.cpu_workers[0].private_ips : []
+  worker_gpu_private_ips = length(module.gpu_workers) > 0 ? module.gpu_workers[0].instance_private_ips : []
+  worker_cpu_private_ips = length(module.cpu_workers) > 0 ? module.cpu_workers[0].instance_private_ips : []
 }
 

@@ -1,0 +1,17 @@
+#!/bin/bash
+# worker-base/templates/user_data.sh.tftpl
+# Simple user data that downloads and executes entrypoint
+# Script management is now handled by cpu-workers/ and gpu-workers/ modules
+
+set -euxo pipefail
+
+# Download and execute entrypoint script
+aws s3 cp s3://${s3_bucket_name}/scripts/entrypoint.sh /tmp/entrypoint.sh
+chmod +x /tmp/entrypoint.sh
+
+# Set environment variables for script execution
+export K8S_NODE_TYPE="${node_type}"
+export K8S_SCRIPT_PREFIX="${script_prefix}"
+
+# Execute entrypoint - it will download and run the appropriate scripts
+/tmp/entrypoint.sh

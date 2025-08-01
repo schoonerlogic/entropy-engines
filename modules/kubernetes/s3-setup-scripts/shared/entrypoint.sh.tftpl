@@ -1,0 +1,108 @@
+#!/bin/bash
+# entrypoint.sh.tftpl - Updated for controller/worker architecture
+set -euxo pipefail
+
+# =================================================================
+# CONFIGURATION
+# =================================================================
+readonly DOWNLOAD_DIR="/tmp/k8s_scripts"
+readonly LOG_DIR="/var/log/terraform-provisioning"
+readonly MAIN_LOG="$$LOG_DIR/entrypoint.log"
+readonly S3_BUCKET="${s3_bucket_name}"
+readonly NODE_TYPE="$${K8S_NODE_TYPE:-controller}"
+readonly SCRIPT_PREFIX="$${K8S_SCRIPT_PREFIX:-controllers}"
+
+# =================================================================
+# ENHANCED SCRIPT DOWNLOAD
+# =================================================================
+download_and_validate_scripts() {
+    echo "=== Downloading Scripts from S3 ==="
+    echo "Node Type: $$NODE_TYPE"
+    echo "Script Prefix: $$SCRIPT_PREFIX"
+    
+    mkdir -p "$$DOWNLOAD_DIR"
+    
+    # Download shared scripts (always needed)
+    echo "Downloading shared scripts..."
+    aws s3 cp "s3://$$S3_BUCKET/scripts/00-shared-functions.sh" "$$DOWNLOAD_DIR/" --quiet
+    aws s3 cp "s3://$$S3_BUCKET/scripts/01-install-user-and-tooling.sh" "$$DOWNLOAD_DIR/" --quiet
+    
+    # Download node-type specific scripts
+    echo "Downloading $$NODE_TYPE-specific scripts..."
+    aws s3 cp "s3://$$S3_BUCKET/scripts/$$SCRIPT_PREFIX/" "$$DOWNLOAD_DIR/" --recursive --quiet
+    
+    # Make all scripts executable
+    chmod +x "$$DOWNLOAD_DIR"/*.sh
+    
+    echo "✓ Script download completed"
+    echo "Available scripts:"
+    ls -la "$$DOWNLOAD_DIR"/*.sh
+}
+
+# =================================================================
+# SCRIPT EXECUTION
+# =================================================================
+execute_setup_scripts() {
+    echo "=== Executing Setup Scripts ==="
+    
+    # Set environment variables for the scripts
+    export SCRIPT_EXECUTION_MODE="entrypoint"
+    export LOG_DIR="$$LOG_DIR"
+    export NODE_TYPE="$$NODE_TYPE"
+    
+    # Execute the main orchestrator script
+    local main_script="$$DOWNLOAD_DIR/k8s-setup-main.sh"
+    
+    if [ -f "$$main_script" ]; then
+        echo "Starting main setup script: $$main_script"
+        
+        if "$$main_script"; then
+            echo "✓ Setup completed successfully"
+            return 0
+        else
+            echo "✗ Setup script failed with exit code $$?"
+            return 1
+        fi
+    else
+        echo "ERROR: Main setup script not found: $$main_script"
+        return 1
+    fi
+}
+
+# ... (rest of the functions from previous entrypoint.sh - wait_for_network, install_aws_cli, etc.)
+
+# =================================================================
+# MAIN EXECUTION
+# =================================================================
+main() {
+    setup_logging
+    
+    if ! wait_for_network; then
+        echo "FATAL: Network initialization failed"
+        exit 1
+    fi
+    
+    prepare_apt_basic
+    
+    if ! install_aws_cli; then
+        echo "FATAL: AWS CLI installation failed"
+        exit 1
+    fi
+    
+    if ! download_and_validate_scripts; then
+        echo "FATAL: Script download/validation failed"
+        exit 1
+    fi
+    
+    if ! execute_setup_scripts; then
+        echo "FATAL: Setup execution failed"
+        exit 1
+    fi
+    
+    echo "=== Entrypoint completed successfully at $$(date) ==="
+    echo "Node Type: $$NODE_TYPE"
+    echo "Full logs available at: $$MAIN_LOG"
+}
+
+# Execute main function
+main "$$@"

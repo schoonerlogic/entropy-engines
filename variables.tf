@@ -106,6 +106,11 @@ variable "kubernetes_config" {
       leafnode   = 7422
       monitoring = 8222
     })
+
+    ssm_join = optional(object({
+      ssm_join_command_path    = string
+      ssm_certificate_key_path = string
+    }))
   })
 }
 
@@ -444,3 +449,5 @@ variable "k8s_config" {
   })
   default = {}
 }
+
+
