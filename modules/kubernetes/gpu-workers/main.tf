@@ -14,6 +14,18 @@ locals {
   cluster_name = var.cluster_name
   environment  = var.environment
 
+  # shared_functions 
+  shared_functions_vars = {
+    log_dir = "/var/log/provisioning"
+  }
+
+  # Entrypoint variable
+  entrypoint_vars = {
+    s3_bucket_name = var.k8s_scripts_bucket_name
+    node_type      = "workers"
+    log_dir        = "/var/log/provisioning"
+  }
+
   # Template variables for shared scripts
   shared_template_vars = {
     k8s_user                   = var.k8s_user
@@ -28,7 +40,7 @@ locals {
   })
 
   # Common tags
-  common_tags = merge(var.additional_tags, {
+  common_tags = {
     Cluster     = local.cluster_name
     Environment = local.environment
     NodeType    = "gpu-worker"
@@ -36,7 +48,7 @@ locals {
 
     install_nvidia_drivers = true
     gpu_device_plugin      = "nvidia"
-  })
+  }
 
   # GPU-specific information that might be useful
   gpu_worker_info = {
@@ -48,7 +60,6 @@ locals {
 }
 
 
-
 # =================================================================
 # SCRIPT CONFIGURATION MAPS - GPU WORKERS
 # =================================================================
@@ -58,20 +69,18 @@ locals {
   shared_scripts = {
     "00-shared-functions" = {
       template_path = "${local.script_base_path}/shared/00-shared-functions.sh.tftpl"
-      vars          = {}
-      s3_key        = "scripts/00-shared-functions.sh"
+      vars          = local.shared_functions_vars
+      s3_key        = "scripts/workers/00-shared-functions.sh"
     }
     "01-install-user-and-tooling" = {
       template_path = "${local.script_base_path}/shared/01-install-user-and-tooling.sh.tftpl"
       vars          = local.shared_template_vars
-      s3_key        = "scripts/01-install-user-and-tooling.sh"
+      s3_key        = "scripts/workers/01-install-user-and-tooling.sh"
     }
     "entrypoint" = {
       template_path = "${local.script_base_path}/shared/entrypoint.sh.tftpl"
-      vars = {
-        s3_bucket_name = var.k8s_scripts_bucket_name
-      }
-      s3_key = "scripts/entrypoint.sh"
+      vars          = local.entrypoint_vars
+      s3_key        = "scripts/workers/entrypoint.sh"
     }
   }
 
@@ -112,7 +121,7 @@ resource "aws_s3_object" "gpu_worker_scripts" {
 
   bucket  = var.k8s_scripts_bucket_name
   key     = each.value.s3_key
-  content = length(each.value.vars) > 0 ? templatefile(each.value.template_path, each.value.vars) : file(each.value.template_path)
+  content = templatefile(each.value.template_path, each.value.vars)
 
   content_type = "text/plain"
 
@@ -120,9 +129,7 @@ resource "aws_s3_object" "gpu_worker_scripts" {
   etag = md5(length(each.value.vars) > 0 ? templatefile(each.value.template_path, each.value.vars) : file(each.value.template_path))
 
   tags = merge(local.common_tags, {
-    Name       = each.key
-    Type       = "gpu-worker-script"
-    ScriptType = contains(keys(local.shared_scripts), each.key) ? "shared" : "gpu-worker-specific"
+    Type = "gpu-worker-script"
   })
 }
 

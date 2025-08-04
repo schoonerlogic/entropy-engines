@@ -9,16 +9,27 @@ set -euxo pipefail
 # SHARED FUNCTIONS INTEGRATION
 # =================================================================
 SCRIPT_DIR="$(dirname "$0")"
-if [ -z "$${SYSTEM_PREPARED:-}" ]; then
+if [ -z "$${SYSTEM_PREPARED:-}" ] && [ ! -f "/tmp/.system_prepared" ]; then
     # shellcheck source=/dev/null
     if [ -f "$SCRIPT_DIR/00-shared-functions.sh" ]; then
         source "$SCRIPT_DIR/00-shared-functions.sh"
-        log_info "Shared functions loaded successfully"
+        
+        # Verify essential functions are available
+        if command -v log_info >/dev/null 2>&1; then
+            log_info "Shared functions loaded successfully"
+        else
+            echo "ERROR: Shared functions loaded but log_info not available"
+            exit 1
+        fi
     else
         echo "ERROR: Cannot find shared functions file: $SCRIPT_DIR/00-shared-functions.sh"
         exit 1
     fi
 fi
+
+setup_logging
+prepare_system_once
+
 
 # =================================================================
 # CONFIGURATION VARIABLES (from Terraform)

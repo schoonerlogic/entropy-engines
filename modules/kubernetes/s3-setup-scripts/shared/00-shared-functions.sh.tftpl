@@ -9,6 +9,33 @@ export DEBIAN_FRONTEND=noninteractive
 # Global variables
 SYSTEM_PREPARED=false
 
+readonly LOG_DIR="${log_dir}"
+
+# =================================================================
+# LOGGING SETUP
+# =================================================================
+setup_logging() {
+    mkdir -p "$LOG_DIR"
+    chown "$(whoami):$(whoami)" "$LOG_DIR" 2>/dev/null || true
+    
+    # Auto-detect calling script name or use parameter
+    local script_name
+    if [[ -n "$${1:-}" ]]; then
+        script_name="$1"
+    else
+        script_name="$$(basename "$${BASH_SOURCE[1]}" .sh).log"
+    fi
+    
+    local full_log_path="$$LOG_DIR/$script_name"
+    
+    # Setup log redirection
+    exec > >(tee -a "$$full_log_path") 2>&1
+    
+    log_info "Logging setup complete. Log file: $full_log_path"
+}
+
+setup_logging 
+
 # Logging functions
 log_info() {
     echo "[INFO $(date '+%Y-%m-%d %H:%M:%S')] $*"
@@ -21,6 +48,9 @@ log_warn() {
 log_error() {
     echo "[ERROR $(date '+%Y-%m-%d %H:%M:%S')] $*"
 }
+
+
+SYSTEM_PREPARED_FILE="/tmp/system_prepared"
 
 # One-time system preparation (run only once across all scripts)
 prepare_system_once() {
@@ -58,7 +88,10 @@ prepare_system_once() {
     
     # Mark system as prepared
     SYSTEM_PREPARED=true
-    export SYSTEM_PREPARED
+    
+    # Mark system as prepared (persistent across scripts)
+    touch "$SYSTEM_PREPARED_FILE"
+    export SYSTEM_PREPARED="true"
     
     log_info "System preparation complete"
 }
@@ -155,6 +188,6 @@ handle_error() {
 }
 
 # Set up error trap
-trap 'handle_error ${LINENO} $?' ERR
+trap 'handle_error $${LINENO} $$?' ERR
 
 log_info "Shared functions loaded successfully"

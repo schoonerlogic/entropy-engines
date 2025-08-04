@@ -83,9 +83,16 @@ locals {
   # Script base path
   script_base_path = "${path.module}/../s3-setup-scripts"
 
+  # shared_functions 
+  shared_functions_vars = {
+    log_dir = "/var/log/provisioning"
+  }
+
   # entrypoint_vars 
   entrypoint_vars = {
-    s3_bucket = local.scripts_bucket_name
+    s3_bucket_name = local.scripts_bucket_name
+    node_type      = "controllers"
+    log_dir        = "/var/log/provisioning"
   }
 
   # Shared template variables
@@ -111,20 +118,18 @@ locals {
   shared_scripts = {
     "00-shared-functions" = {
       template_path = "${local.script_base_path}/shared/00-shared-functions.sh.tftpl"
-      vars          = {}
-      s3_key        = "scripts/00-shared-functions.sh"
+      vars          = local.shared_functions_vars
+      s3_key        = "scripts/controllers/00-shared-functions.sh"
     }
     "01-install-user-and-tooling" = {
       template_path = "${local.script_base_path}/shared/01-install-user-and-tooling.sh.tftpl"
       vars          = local.shared_template_vars
-      s3_key        = "scripts/01-install-user-and-tooling.sh"
+      s3_key        = "scripts/controllers/01-install-user-and-tooling.sh"
     }
     "entrypoint" = {
       template_path = "${local.script_base_path}/shared/entrypoint.sh.tftpl"
-      vars = {
-        s3_bucket_name = local.scripts_bucket_name
-      }
-      s3_key = "scripts/entrypoint.sh"
+      vars          = local.entrypoint_vars
+      s3_key        = "scripts/controllers/entrypoint.sh"
     }
   }
 
@@ -162,15 +167,14 @@ resource "aws_s3_object" "controller_scripts" {
 
   bucket  = local.scripts_bucket_name
   key     = each.value.s3_key
-  content = length(each.value.vars) > 0 ? templatefile(each.value.template_path, each.value.vars) : file(each.value.template_path)
+  content = templatefile(each.value.template_path, each.value.vars)
 
   content_type = "text/plain"
 
-  tags = {
-    Name        = each.key
-    Environment = var.environment
-    Type        = "controller-script"
-  }
+  tags = merge(local.common_tags, {
+    Type = "controller-script"
+  })
+
 }
 
 #===============================================================================

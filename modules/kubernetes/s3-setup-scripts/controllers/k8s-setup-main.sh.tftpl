@@ -2,26 +2,31 @@
 # /tmp/k8s_scripts/k8s-setup-main.sh
 # Main wrapper script that orchestrates all K8s setup scripts
 
-# Setup logging
-MAIN_LOG_FILE="/var/log/terraform-provisioning/k8s-setup-main.log"
-mkdir -p "$(dirname "$MAIN_LOG_FILE")"
-exec > >(tee -a "$MAIN_LOG_FILE") 2>&1
-
 echo "=== Kubernetes Setup Started at $(date) ==="
 
-# Load shared functions
-SCRIPT_DIR="$(dirname "$0")"
-if [ -f "$SCRIPT_DIR/00-shared-functions.sh" ]; then
+# =================================================================
+# SHARED FUNCTIONS INTEGRATION
+# =================================================================
+SCRIPT_DIR="$$(dirname "$0")"
+if [ -z "$${SYSTEM_PREPARED:-}" ] && [ ! -f "/tmp/.system_prepared" ]; then
     # shellcheck source=/dev/null
-    source "$SCRIPT_DIR/00-shared-functions.sh"
-    log_info "Shared functions loaded successfully"
-else
-    echo "ERROR: Cannot find shared functions file"
-    exit 1
+    if [ -f "$SCRIPT_DIR/00-shared-functions.sh" ]; then
+        source "$SCRIPT_DIR/00-shared-functions.sh"
+        
+        # Verify essential functions are available
+        if command -v log_info >/dev/null 2>&1; then
+            log_info "Shared functions loaded successfully"
+        else
+            echo "ERROR: Shared functions loaded but log_info not available"
+            exit 1
+        fi
+    else
+        echo "ERROR: Cannot find shared functions file: $SCRIPT_DIR/00-shared-functions.sh"
+        exit 1
+    fi
 fi
 
-# One-time system preparation
-log_info "Starting system preparation..."
+setup_logging
 prepare_system_once
 
 # Define the scripts to run in order
