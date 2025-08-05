@@ -7,7 +7,7 @@ echo "=== Kubernetes Setup Started at $(date) ==="
 # =================================================================
 # SHARED FUNCTIONS INTEGRATION
 # =================================================================
-SCRIPT_DIR="$$(dirname "$0")"
+SCRIPT_DIR=${script_dir}
 if [ -z "$${SYSTEM_PREPARED:-}" ] && [ ! -f "/tmp/.system_prepared" ]; then
     # shellcheck source=/dev/null
     if [ -f "$SCRIPT_DIR/00-shared-functions.sh" ]; then

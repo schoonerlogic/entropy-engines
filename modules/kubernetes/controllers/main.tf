@@ -95,6 +95,11 @@ locals {
     log_dir        = "/var/log/provisioning"
   }
 
+  # k8s_setup_main_vars
+  k8s_setup_main_vars = {
+    script_dir = "/tmp/k8s_scripts"
+  }
+
   # Shared template variables
   shared_template_vars = {
     k8s_user                   = local.k8s_user
@@ -137,7 +142,7 @@ locals {
   controller_scripts = {
     "k8s-setup-main" = {
       template_path = "${local.script_base_path}/controllers/k8s-setup-main.sh.tftpl"
-      vars          = {}
+      vars          = local.k8s_setup_main_vars
       s3_key        = "scripts/controllers/k8s-setup-main.sh"
     }
     "02-install-kubernetes" = {
