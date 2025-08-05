@@ -8,11 +8,11 @@ set -euxo pipefail
 # =================================================================
 # SHARED FUNCTIONS INTEGRATION
 # =================================================================
-SCRIPT_DIR="$$ (dirname "$0")"
+SCRIPT_DIR=${script_dir}
 if [ -z "$${SYSTEM_PREPARED:-}" ] && [ ! -f "/tmp/.system_prepared" ]; then
     # shellcheck source=/dev/null
-    if [ -f "$SCRIPT_DIR/00-shared-functions.sh" ]; then
-        source "$SCRIPT_DIR/00-shared-functions.sh"
+    if [ -f "$${SCRIPT_DIR}/00-shared-functions.sh" ]; then
+        source "$${SCRIPT_DIR}/00-shared-functions.sh"
         
         # Verify essential functions are available
         if command -v log_info >/dev/null 2>&1; then
@@ -22,7 +22,7 @@ if [ -z "$${SYSTEM_PREPARED:-}" ] && [ ! -f "/tmp/.system_prepared" ]; then
             exit 1
         fi
     else
-        echo "ERROR: Cannot find shared functions file: $SCRIPT_DIR/00-shared-functions.sh"
+        echo "ERROR: Cannot find shared functions file: $${SCRIPT_DIR}/00-shared-functions.sh"
         exit 1
     fi
 fi
@@ -41,9 +41,9 @@ readonly KUBECONFIG_PATH="/etc/kubernetes/admin.conf"
 readonly COMPLETION_SIGNAL_FILE="/tmp/terraform_bootstrap_complete"
 
 log_info "=== CNI Installation and Cluster Finalization Started ==="
-log_info "Target User: $TARGET_K8S_USER"
-log_info "CNI Plugin: $CNI_PLUGIN"
-log_info "CNI Version: $CNI_VERSION"
+log_info "Target User: $${TARGET_K8S_USER}"
+log_info "CNI Plugin: $${CNI_PLUGIN}"
+log_info "CNI Version: $${CNI_VERSION}"
 
 # =================================================================
 # CLUSTER VERIFICATION
@@ -52,13 +52,13 @@ verify_cluster_accessibility() {
     log_info "=== Verifying Cluster Accessibility ==="
     
     # Check if admin config exists
-    if [ ! -f "$KUBECONFIG_PATH" ]; then
-        log_error "Kubernetes admin config not found: $KUBECONFIG_PATH"
+    if [ ! -f "$${KUBECONFIG_PATH}" ]; then
+        log_error "Kubernetes admin config not found: $${KUBECONFIG_PATH}"
         return 1
     fi
     
     # Set kubeconfig for this script
-    export KUBECONFIG="$KUBECONFIG_PATH"
+    export KUBECONFIG="$${KUBECONFIG_PATH}"
     
     # Test cluster connectivity
     log_info "Testing cluster connectivity..."
@@ -95,16 +95,16 @@ verify_cluster_accessibility() {
 install_calico_cni() {
     log_info "=== Installing Calico CNI Plugin ==="
     
-    local calico_url="https://raw.githubusercontent.com/projectcalico/calico/$CNI_VERSION/manifests/calico.yaml"
+    local calico_url="https://raw.githubusercontent.com/projectcalico/calico/$${CNI_VERSION}/manifests/calico.yaml"
     
-    log_info "Applying Calico manifests from: $calico_url"
+    log_info "Applying Calico manifests from: $${calico_url}"
     
     # Apply Calico manifests with retry
     local max_attempts=3
     for attempt in $(seq 1 $max_attempts); do
         log_info "Applying Calico manifests (attempt $attempt/$max_attempts)..."
         
-        if kubectl apply -f "$calico_url"; then
+        if kubectl apply -f "$${calico_url}"; then
             log_info "✓ Calico manifests applied successfully"
             break
         elif [ $attempt -eq $max_attempts ]; then
@@ -177,9 +177,9 @@ install_flannel_cni() {
     
     local flannel_url="https://github.com/flannel-io/flannel/releases/latest/download/kube-flannel.yml"
     
-    log_info "Applying Flannel manifests from: $flannel_url"
+    log_info "Applying Flannel manifests from: $${flannel_url}"
     
-    if kubectl apply -f "$flannel_url"; then
+    if kubectl apply -f "$${flannel_url}"; then
         log_info "✓ Flannel manifests applied successfully"
         
         # Wait for flannel pods
@@ -199,9 +199,9 @@ install_flannel_cni() {
 }
 
 install_cni_plugin() {
-    log_info "=== Installing CNI Plugin: $CNI_PLUGIN ==="
+    log_info "=== Installing CNI Plugin: $${CNI_PLUGIN} ==="
     
-    case "$CNI_PLUGIN" in
+    case "$${CNI_PLUGIN}" in
         "calico")
             install_calico_cni && wait_for_calico_pods
             ;;
@@ -209,7 +209,7 @@ install_cni_plugin() {
             install_flannel_cni
             ;;
         *)
-            log_error "Unsupported CNI plugin: $CNI_PLUGIN"
+            log_error "Unsupported CNI plugin: $${CNI_PLUGIN}"
             return 1
             ;;
     esac
@@ -248,59 +248,59 @@ wait_for_nodes_ready() {
 setup_user_kubectl_config() {
     log_info "=== Setting up kubectl Configuration for User ==="
     
-    log_info "Configuring kubectl for user: $TARGET_K8S_USER"
+    log_info "Configuring kubectl for user: $${TARGET_K8S_USER}"
     
     # Verify user exists
-    if ! id "$TARGET_K8S_USER" >/dev/null 2>&1; then
-        log_warn "User $TARGET_K8S_USER does not exist, skipping kubectl setup"
+    if ! id "$${TARGET_K8S_USER}" >/dev/null 2>&1; then
+        log_warn "User $${TARGET_K8S_USER} does not exist, skipping kubectl setup"
         return 0
     fi
     
-    log_info "✓ User $TARGET_K8S_USER exists"
+    log_info "✓ User $${TARGET_K8S_USER} exists"
     
     # Get user information
     local target_uid=""
     local target_gid=""
     
-    if ! target_uid=$(id -u "$TARGET_K8S_USER" 2>/dev/null); then
-        log_error "Failed to get UID for user $TARGET_K8S_USER"
+    if ! target_uid=$(id -u "$${TARGET_K8S_USER}" 2>/dev/null); then
+        log_error "Failed to get UID for user $${TARGET_K8S_USER}"
         return 1
     fi
     
-    if ! target_gid=$(id -g "$TARGET_K8S_USER" 2>/dev/null); then
-        log_error "Failed to get GID for user $TARGET_K8S_USER"
+    if ! target_gid=$(id -g "$${TARGET_K8S_USER}" 2>/dev/null); then
+        log_error "Failed to get GID for user $${TARGET_K8S_USER}"
         return 1
     fi
     
     # Set up kubectl config
-    local kube_dir="/home/$TARGET_K8S_USER/.kube"
-    local kube_config="$kube_dir/config"
+    local kube_dir="/home/$${TARGET_K8S_USER}/.kube"
+    local kube_config="$${kube_dir}/config"
     
-    log_info "Creating kubectl directory: $kube_dir"
-    mkdir -p "$kube_dir"
+    log_info "Creating kubectl directory: $${kube_dir}"
+    mkdir -p "$${kube_dir}"
     
     log_info "Copying admin config to user config..."
-    if [ ! -f "$KUBECONFIG_PATH" ]; then
-        log_error "Admin config not found: $KUBECONFIG_PATH"
+    if [ ! -f "$${KUBECONFIG_PATH}" ]; then
+        log_error "Admin config not found: $${KUBECONFIG_PATH}"
         return 1
     fi
     
-    cp "$KUBECONFIG_PATH" "$kube_config"
+    cp "$${KUBECONFIG_PATH}" "$${kube_config}"
     
     # Set proper ownership
     log_info "Setting ownership to $target_uid:$target_gid"
-    chown "$target_uid:$target_gid" "$kube_dir"
-    chown "$target_uid:$target_gid" "$kube_config"
+    chown "$target_uid:$target_gid" "$${kube_dir}"
+    chown "$target_uid:$target_gid" "$${kube_config}"
     
     # Set proper permissions
-    chmod 700 "$kube_dir"
-    chmod 600 "$kube_config"
+    chmod 700 "$${kube_dir}"
+    chmod 600 "$4{kube_config}"
     
-    log_info "✓ kubectl configured successfully for user $TARGET_K8S_USER"
+    log_info "✓ kubectl configured successfully for user $${TARGET_K8S_USER}"
     
     # Test the configuration as the user
-    log_info "Testing kubectl access for user $TARGET_K8S_USER..."
-    if sudo -u "$TARGET_K8S_USER" kubectl get nodes >/dev/null 2>&1; then
+    log_info "Testing kubectl access for user $${TARGET_K8S_USER}..."
+    if sudo -u "$${TARGET_K8S_USER}" kubectl get nodes >/dev/null 2>&1; then
         log_info "✓ User can successfully access cluster with kubectl"
     else
         log_warn "User may not be able to access cluster (this could be normal if CNI is still starting)"
@@ -316,20 +316,20 @@ create_completion_signal() {
     log_info "=== Creating Completion Signal ==="
     
     # Create completion signal file
-    touch "$COMPLETION_SIGNAL_FILE"
-    chmod 644 "$COMPLETION_SIGNAL_FILE"
+    touch "$${COMPLETION_SIGNAL_FILE}"
+    chmod 644 "$${COMPLETION_SIGNAL_FILE}"
     
     # Add metadata to the signal file
-    cat > "$COMPLETION_SIGNAL_FILE" << EOF
+    cat > "$${COMPLETION_SIGNAL_FILE}" << EOF
 # Terraform Bootstrap Completion Signal
 # Generated at: $(date)
 # User: $(whoami)
-# CNI Plugin: $CNI_PLUGIN
-# Target User: $TARGET_K8S_USER
+# CNI Plugin: $${CNI_PLUGIN}
+# Target User: $${TARGET_K8S_USER}
 # Cluster Status: Ready
 EOF
     
-    log_info "✓ Completion signal created: $COMPLETION_SIGNAL_FILE"
+    log_info "✓ Completion signal created: $${COMPLETION_SIGNAL_FILE}"
 }
 
 perform_final_verification() {
@@ -402,10 +402,10 @@ main() {
     perform_final_verification
     
     log_info "=== CNI Installation and Cluster Finalization Completed Successfully ==="
-    log_info "✓ CNI Plugin ($CNI_PLUGIN) installed and ready"
+    log_info "✓ CNI Plugin ($${CNI_PLUGIN}) installed and ready"
     log_info "✓ All nodes are ready"
-    log_info "✓ kubectl configured for user: $TARGET_K8S_USER"
-    log_info "✓ Completion signal created: $COMPLETION_SIGNAL_FILE"
+    log_info "✓ kubectl configured for user: $${TARGET_K8S_USER}"
+    log_info "✓ Completion signal created: $${COMPLETION_SIGNAL_FILE}"
     log_info "✓ Cluster is fully operational"
     
     return 0

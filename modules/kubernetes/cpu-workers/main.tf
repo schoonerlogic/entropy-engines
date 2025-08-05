@@ -28,6 +28,7 @@ locals {
     s3_bucket_name = var.k8s_scripts_bucket_name
     node_type      = "workers"
     log_dir        = "/var/log/provisioning"
+    script_dir     = "/tmp/k8s_scripts"
   }
 
   # Template variables for shared scripts
@@ -35,12 +36,14 @@ locals {
     k8s_user                   = var.k8s_user
     k8s_major_minor_stream     = var.k8s_major_minor_stream
     k8s_package_version_string = var.k8s_package_version_string
+    script_dir                 = "/tmp/k8s_scripts"
   }
 
   # Template variables for CPU worker-specific scripts
   cpu_worker_template_vars = merge(local.shared_template_vars, {
     cluster_name          = var.cluster_name
     ssm_join_command_path = var.ssm_join_command_path
+    script_dir            = "/tmp/k8s_scripts"
   })
 
   # Common tags

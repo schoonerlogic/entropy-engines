@@ -10,8 +10,8 @@ echo "=== Kubernetes Workers Setup Started at $(date) ==="
 SCRIPT_DIR=${script_dir}
 if [ -z "$${SYSTEM_PREPARED:-}" ] && [ ! -f "/tmp/.system_prepared" ]; then
     # shellcheck source=/dev/null
-    if [ -f "$SCRIPT_DIR/00-shared-functions.sh" ]; then
-        source "$SCRIPT_DIR/00-shared-functions.sh"
+    if [ -f "$${SCRIPT_DIR}/00-shared-functions.sh" ]; then
+        source "$${SCRIPT_DIR}/00-shared-functions.sh"
         
         # Verify essential functions are available
         if command -v log_info >/dev/null 2>&1; then
@@ -21,7 +21,7 @@ if [ -z "$${SYSTEM_PREPARED:-}" ] && [ ! -f "/tmp/.system_prepared" ]; then
             exit 1
         fi
     else
-        echo "ERROR: Cannot find shared functions file: $SCRIPT_DIR/00-shared-functions.sh"
+        echo "ERROR: Cannot find shared functions file: $${SCRIPT_DIR}/00-shared-functions.sh"
         exit 1
     fi
 fi
@@ -41,13 +41,13 @@ SCRIPTS=(
 
 # Execute scripts in sequence
 
-for script in $SCRIPTS_LIST; do
-    script_path="$SCRIPT_DIR/$script"
+for script in "$${SCRIPTS[@]}"; do
+    script_path="$${SCRIPT_DIR}/$script"
     
-    if [ -f "$script_path" ]; then
+    if [ -f "$${script_path}" ]; then
         log_info "Starting script: $script"
         
-        if bash "$script_path"; then
+        if bash "$${script_path}"; then
             log_info "Script completed successfully: $script"
         else
             log_error "Script failed: $script"
@@ -59,4 +59,3 @@ for script in $SCRIPTS_LIST; do
 done
 
 log_info "=== Kubernetes Setup Completed Successfully at $(date) ==="
-echo "Setup completed. Check $MAIN_LOG_FILE for full details."

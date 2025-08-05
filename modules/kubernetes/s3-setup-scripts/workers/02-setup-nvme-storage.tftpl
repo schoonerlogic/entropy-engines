@@ -10,8 +10,8 @@ set -euxo pipefail
 SCRIPT_DIR=${script_dir}
 if [ -z "$${SYSTEM_PREPARED:-}" ] && [ ! -f "/tmp/.system_prepared" ]; then
     # shellcheck source=/dev/null
-    if [ -f "$$SCRIPT_DIR/00-shared-functions.sh" ]; then
-        source "$$SCRIPT_DIR/00-shared-functions.sh"
+    if [ -f "$${SCRIPT_DIR}/00-shared-functions.sh" ]; then
+        source "$${SCRIPT_DIR}/00-shared-functions.sh"
         
         # Verify essential functions are available
         if command -v log_info >/dev/null 2>&1; then
@@ -21,7 +21,7 @@ if [ -z "$${SYSTEM_PREPARED:-}" ] && [ ! -f "/tmp/.system_prepared" ]; then
             exit 1
         fi
     else
-        echo "ERROR: Cannot find shared functions file: $$SCRIPT_DIR/00-shared-functions.sh"
+        echo "ERROR: Cannot find shared functions file: $${SCRIPT_DIR}/00-shared-functions.sh"
         exit 1
     fi
 fi
@@ -37,8 +37,8 @@ readonly NVME_MOUNT_POINT="/mnt/nvme_storage"
 readonly MIN_NVME_SIZE_BYTES=107374182400  # 100 GiB
 
 log_info "=== NVMe Storage Setup Started ==="
-log_info "Target User: $TARGET_USER"
-log_info "Mount Point: $NVME_MOUNT_POINT"
+log_info "Target User: $${TARGET_USER}"
+log_info "Mount Point: $${NVME_MOUNT_POINT}"
 
 # =================================================================
 # NVME STORAGE MANAGEMENT
@@ -54,25 +54,25 @@ find_ephemeral_nvme() {
     fi
     
     local root_disk=""
-    root_disk=$$(lsblk -no pkname "$$root_partition" 2>/dev/null || echo "")
-    if [[ -n "$$root_disk" && ! "$$root_disk" =~ ^/ ]]; then
-        root_disk="/dev/$$root_disk"
-    elif [[ -z "$4root_disk" ]]; then
-        root_disk=$(echo "$4root_partition" | sed 's/[0-9]*$//')
+    root_disk=$(lsblk -no pkname "${root_partition}" 2>/dev/null || echo "")
+    if [[ -n "${root_disk}" && ! "${root_disk}" =~ ^/ ]]; then
+        root_disk="/dev/${root_disk}"
+    elif [[ -z "${root_disk}" ]]; then
+        root_disk=$(echo "${root_partition}" | sed 's/[0-9]*$//')
     fi
     
-    log_info "Root disk identified as: $$root_disk"
+    log_info "Root disk identified as: ${root_disk}"
     
     # Find suitable NVMe device
     local target_device=""
     while IFS= read -r line; do
         local device type size mountpoint
-        read -r devicegg type size mountpoint <<< "$line"
+        read -r device type size mountpoint <<< "$line"
         
         log_info "Evaluating device: $device (type=$type, size=$size, mount=$mountpoint)"
         
         if [[ "$device" =~ ^/dev/nvme && "$type" == "disk" && \
-              "$device" != "$root_disk" && "$size" -gt "$MIN_NVME_SIZE_BYTES" ]]; then
+              "$device" != "${root_disk}" && "$size" -gt "$MIN_NVME_SIZE_BYTES" ]]; then
             
             if [[ -z "$mountpoint" || "$mountpoint" =~ ^(/mnt|/media/ephemeral) ]]; then
                 target_device="$device"
@@ -110,13 +110,13 @@ format_and_mount_nvme() {
         return 1
     fi
     
-    log_info "Creating mount point: $NVME_MOUNT_POINT"
-    mkdir -p "$NVME_MOUNT_POINT"
+    log_info "Creating mount point: $${NVME_MOUNT_POINT}"
+    mkdir -p "$${NVME_MOUNT_POINT}"
     
-    log_info "Mounting $device to $NVME_MOUNT_POINT"
-    if mount -t xfs -o discard "$device" "$NVME_MOUNT_POINT"; then
+    log_info "Mounting $device to $${NVME_MOUNT_POINT}"
+    if mount -t xfs -o discard "$device" "$${NVME_MOUNT_POINT}"; then
         log_info "✓ NVMe storage mounted successfully"
-        df -hT "$NVME_MOUNT_POINT" | while IFS= read -r line; do
+        df -hT "$${NVME_MOUNT_POINT}" | while IFS= read -r line; do
             log_info "  $line"
         done
     else
@@ -131,15 +131,15 @@ create_directory_structure() {
     log_info "Creating directory structure on NVMe storage..."
     
     # Define directory paths
-    local containerd_dir="$NVME_MOUNT_POINT/lib/containerd"
-    local kubelet_dir="$NVME_MOUNT_POINT/lib/kubelet"
-    local pod_logs_dir="$NVME_MOUNT_POINT/log/pods"
-    local local_path_dir="$NVME_MOUNT_POINT/local-path-provisioner"
-    local shared_data_dir="$NVME_MOUNT_POINT/shared_data/$TARGET_USER"
-    local huggingface_dir="$NVME_MOUNT_POINT/shared_data/$TARGET_USER/huggingface"
-    local datasets_dir="$NVME_MOUNT_POINT/shared_data/$TARGET_USER/datasets"
-    local llm_models_dir="$NVME_MOUNT_POINT/shared_data/$TARGET_USER/llm_models"
-    local user_docker_dir="$NVME_MOUNT_POINT/user_docker_data/$TARGET_USER"
+    local containerd_dir="$${NVME_MOUNT_POINT}/lib/containerd"
+    local kubelet_dir="$${NVME_MOUNT_POINT}/lib/kubelet"
+    local pod_logs_dir="$${NVME_MOUNT_POINT}/log/pods"
+    local local_path_dir="$${NVME_MOUNT_POINT}/local-path-provisioner"
+    local shared_data_dir="$${NVME_MOUNT_POINT}/shared_data/$${TARGET_USER}"
+    local huggingface_dir="$${NVME_MOUNT_POINT}/shared_data/$${TARGET_USER}/huggingface"
+    local datasets_dir="$${NVME_MOUNT_POINT}/shared_data/$${TARGET_USER}/datasets"
+    local llm_models_dir="$${NVME_MOUNT_POINT}/shared_data/$${TARGET_USER}/llm_models"
+    local user_docker_dir="$${NVME_MOUNT_POINT}/user_docker_data/$${TARGET_USER}"
     
     # Create system directories
     log_info "Creating system directories..."
@@ -160,22 +160,22 @@ create_directory_structure() {
     log_info "Set sticky bit permissions on local path provisioner directory"
     
     # Set ownership for target user directories
-    if id "$TARGET_USER" &>/dev/null; then
+    if id "${TARGET_USER}" &>/dev/null; then
         local shared_base=""
         shared_base=$(dirname "$shared_data_dir")
         
-        log_info "Setting ownership for $TARGET_USER directories"
-        chown -R "$TARGET_USER:$TARGET_USER" "$shared_base"
+        log_info "Setting ownership for $${TARGET_USER} directories"
+        chown -R "$${TARGET_USER}:$${TARGET_USER}" "$shared_base"
         chmod -R u=rwX,g=rX,o= "$shared_data_dir"
         
         if [[ -f "/etc/docker/daemon.json" ]]; then
-            chown -R "$TARGET_USER:$TARGET_USER" "$user_docker_dir"
-            log_info "Set Docker directory ownership for $TARGET_USER"
+            chown -R "$${TARGET_USER}:$${TARGET_USER}" "$user_docker_dir"
+            log_info "Set Docker directory ownership for ${TARGET_USER}"
         fi
         
         log_info "✓ User directory ownership configured"
     else
-        log_warn "User $TARGET_USER not found, skipping ownership changes"
+        log_warn "User $${TARGET_USER} not found, skipping ownership changes"
     fi
     
     # Export paths for use in symlink creation
@@ -237,12 +237,11 @@ create_kubernetes_symlinks() {
     local success=true
     
     # Create symlinks with error handling
-    create_symlink "$NVME_CONTAINERD_DIR" "/var/lib/containerd" || success=false
-    create_symlink "$NVME_KUBELET_DIR" "/var/lib/kubelet" || success=false
-    create_symlink "$NVME_POD_LOGS_DIR" "/var/log/pods" || success=false
+    create_symlink "$${NVME_CONTAINERD_DIR}" "/var/lib/containerd" || success=false
+    create_symlink "$${NVME_KUBELET_DIR}" "/var/lib/kubelet" || success=false
+    create_symlink "$${NVME_POD_LOGS_DIR}" "/var/log/pods" || success=false
     
-    if $success;
-     then
+    if $success; then
         log_info "✓ All Kubernetes symlinks created successfully"
         return 0
     else
@@ -270,7 +269,7 @@ create_symlink() {
             rm -f "$link_path"
         fi
     elif [[ -e "$link_path" ]]; then
-        local backup_path="$${link_path}.backup.$$(date +%s)"
+        local backup_path="${link_path}.backup.$(date +%s)"
         log_info "Backing up existing path: $link_path -> $backup_path"
         mv "$link_path" "$backup_path" || log_warn "Failed to backup $link_path"
     fi
@@ -289,31 +288,31 @@ create_symlink() {
 setup_ssh_for_user() {
     log_info "Setting up SSH for target user..."
     
-    if ! id "$TARGET_USER" &>/dev/null; then
-        log_warn "User $TARGET_USER not found, skipping SSH setup"
+    if ! id "$${TARGET_USER}" &>/dev/null; then
+        log_warn "User ${TARGET_USER} not found, skipping SSH setup"
         return 0
     fi
     
     local default_user="ubuntu"
     local default_keys="/home/$default_user/.ssh/authorized_keys"
-    local user_ssh_dir="/home/$TARGET_USER/.ssh"
-    local user_keys="$user_ssh_dir/authorized_keys"
+    local user_ssh_dir="/home/${TARGET_USER}/.ssh"
+    local user_keys="${user_ssh_dir}/authorized_keys"
     
     if [[ ! -f "$default_keys" ]]; then
         log_warn "Default user authorized_keys not found: $default_keys"
         return 0
     fi
     
-    log_info "Setting up SSH keys for $TARGET_USER"
-    mkdir -p "$user_ssh_dir"
+    log_info "Setting up SSH keys for ${TARGET_USER}"
+    mkdir -p "${user_ssh_dir}"
     
     if cp "$default_keys" "$user_keys"; then
-        chown -R "$TARGET_USER:$TARGET_USER" "$user_ssh_dir"
-        chmod 700 "$user_ssh_dir"
+        chown -R "$${TARGET_USER}:${TARGET_USER}" "${user_ssh_dir}"
+        chmod 700 "${user_ssh_dir}"
         chmod 600 "$user_keys"
-        log_info "✓ SSH keys configured for $TARGET_USER"
+        log_info "✓ SSH keys configured for ${TARGET_USER}"
     else
-        log_error "Failed to copy SSH keys for $TARGET_USER"
+        log_error "Failed to copy SSH keys for ${TARGET_USER}"
         return 1
     fi
     
@@ -364,10 +363,10 @@ main() {
     
     log_info "=== NVMe Storage Setup Completed Successfully ==="
     log_info "✓ NVMe Device: $nvme_device"
-    log_info "✓ Mount Point: $NVME_MOUNT_POINT"
+    log_info "✓ Mount Point: ${NVME_MOUNT_POINT}"
     log_info "✓ Kubernetes directories symlinked to NVMe storage"
     log_info "✓ Services restarted: containerd"
-    log_info "✓ Target user configured: $TARGET_USER"
+    log_info "✓ Target user configured: ${TARGET_USER}"
     
     return 0
 }

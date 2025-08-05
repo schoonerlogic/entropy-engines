@@ -7,11 +7,11 @@ set -euxo pipefail
 # =================================================================
 # SHARED FUNCTIONS INTEGRATION
 # =================================================================
-SCRIPT_DIR="$(dirname "$0")"
+SCRIPT_DIR=${script_dir}
 if [ -z "$${SYSTEM_PREPARED:-}" ] && [ ! -f "/tmp/.system_prepared" ]; then
     # shellcheck source=/dev/null
-    if [ -f "$SCRIPT_DIR/00-shared-functions.sh" ]; then
-        source "$SCRIPT_DIR/00-shared-functions.sh"
+    if [ -f "$${SCRIPT_DIR}/00-shared-functions.sh" ]; then
+        source "$${SCRIPT_DIR}/00-shared-functions.sh"
         
         # Verify essential functions are available
         if command -v log_info >/dev/null 2>&1; then
@@ -21,7 +21,7 @@ if [ -z "$${SYSTEM_PREPARED:-}" ] && [ ! -f "/tmp/.system_prepared" ]; then
             exit 1
         fi
     else
-        echo "ERROR: Cannot find shared functions file: $SCRIPT_DIR/00-shared-functions.sh"
+        echo "ERROR: Cannot find shared functions file: $${SCRIPT_DIR}/00-shared-functions.sh"
         exit 1
     fi
 fi
@@ -32,12 +32,12 @@ prepare_system_once
 # =================================================================
 # CONFIGURATION VARIABLES (from Terraform)
 # =================================================================
-readonly SSM_JOIN_COMMAND_PATH="${ssm_join_command_path}"
-readonly CLUSTER_NAME="${cluster_name}"
+readonly SSM_JOIN_COMMAND_PATH="$${ssm_join_command_path}"
+readonly CLUSTER_NAME="$${cluster_name}"
 
 log_info "=== Cluster Join Process Started ==="
-log_info "Cluster: $$CLUSTER_NAME"
-log_info "SSM Join Path: $$SSM_JOIN_COMMAND_PATH"
+log_info "Cluster: $${CLUSTER_NAME}"
+log_info "SSM Join Path: $${SSM_JOIN_COMMAND_PATH}"
 
 # =================================================================
 # INSTANCE METADATA
@@ -50,28 +50,28 @@ get_instance_region() {
         local token=""
         local max_attempts=5
         
-        for attempt in $$(seq 1 $$max_attempts); do
-            if token=$$(curl -X PUT "http://169.254.169.254/latest/api/token" \
+        for attempt in $(seq 1 $max_attempts); do
+            if token=$(curl -X PUT "http://169.254.169.254/latest/api/token" \
                          -H "X-aws-ec2-metadata-token-ttl-seconds: 21600" \
                          -s --max-time 10 --connect-timeout 5 2>/dev/null); then
-                export AWS_METADATA_TOKEN="$$token"
+                export AWS_METADATA_TOKEN="$${token}"
                 break
             fi
             
-            if [ $$attempt -lt $$max_attempts ]; then
+            if [ $attempt -lt $max_attempts ]; then
                 log_warn "Failed to get metadata token, retrying..."
-                sleep $$((attempt * 2))
+                sleep $((attempt * 2))
             fi
         done
         
         if [ -z "$${AWS_METADATA_TOKEN:-}" ]; then
-            log_error "Failed to get IMDSv2 token after $$max_attempts attempts"
+            log_error "Failed to get IMDSv2 token after $max_attempts attempts"
             return 1
         fi
     fi
     
     # Get instance region
-    if ! INSTANCE_REGION=$$(curl -H "X-aws-ec2-metadata-token: $$AWS_METADATA_TOKEN" \
+    if ! INSTANCE_REGION=$(curl -H "X-aws-ec2-metadata-token: $${AWS_METADATA_TOKEN}" \
                              -s --max-time 10 --connect-timeout 5 \
                              "http://169.254.169.254/latest/dynamic/instance-identity/document" 2>/dev/null | \
                            jq -r .region 2>/dev/null); then
@@ -80,7 +80,7 @@ get_instance_region() {
     fi
     
     export INSTANCE_REGION
-    log_info "Instance Region: $$INSTANCE_REGION"
+    log_info "Instance Region: $${INSTANCE_REGION}"
     
     return 0
 }
@@ -90,8 +90,8 @@ get_instance_region() {
 # =================================================================
 fetch_join_command() {
     log_info "=== Fetching Kubernetes Join Command ==="
-    log_info "SSM Parameter: $$SSM_JOIN_COMMAND_PATH"
-    log_info "Region: $$INSTANCE_REGION"
+    log_info "SSM Parameter: $${SSM_JOIN_COMMAND_PATH}"
+    log_info "Region: $${INSTANCE_REGION}"
     
     if ! command -v aws &>/dev/null; then
         log_error "AWS CLI not found"
@@ -101,33 +101,33 @@ fetch_join_command() {
     local max_attempts=20  # Increased for worker nodes
     local attempt=1
     
-    while [[ $$attempt -le $$max_attempts ]]; do
-        log_info "Attempt $$attempt/$$max_attempts: Fetching join command from SSM"
+    while [[ $attempt -le $max_attempts ]]; do
+        log_info "Attempt $attempt/$max_attempts: Fetching join command from SSM"
         
-        if JOIN_COMMAND=$$(aws ssm get-parameter \
-            --name "$$SSM_JOIN_COMMAND_PATH" \
+        if JOIN_COMMAND=$(aws ssm get-parameter \
+            --name "$${SSM_JOIN_COMMAND_PATH}" \
             --with-decryption \
             --query "Parameter.Value" \
             --output text \
-            --region "$$INSTANCE_REGION" 2>/dev/null); then
+            --region "$${INSTANCE_REGION}" 2>/dev/null); then
             
-            if [[ -n "$$JOIN_COMMAND" && "$$JOIN_COMMAND" != "None" ]]; then
+            if [[ -n "$${JOIN_COMMAND}" && "$${JOIN_COMMAND}" != "None" ]]; then
                 log_info "✓ Successfully fetched join command"
                 export JOIN_COMMAND
                 return 0
             fi
         fi
         
-        log_warn "Failed to fetch SSM parameter (attempt $$attempt/$$max_attempts)"
-        if [[ $$attempt -lt $$max_attempts ]]; then
-            local sleep_time=$$((attempt * 15))  # Progressive backoff
-            log_info "Waiting $${sleep_time}s before retry..."
-            sleep $$sleep_time
+        log_warn "Failed to fetch SSM parameter (attempt $attempt/$max_attempts)"
+        if [[ $attempt -lt $max_attempts ]]; then
+            local sleep_time=$((attempt * 15))  # Progressive backoff
+            log_info "Waiting $${sleep_time} s before retry..."
+            sleep $sleep_time
         fi
         ((attempt++))
     done
     
-    log_error "Failed to fetch SSM parameter after $$max_attempts attempts"
+    log_error "Failed to fetch SSM parameter after $max_attempts attempts"
     return 1
 }
 
@@ -140,15 +140,15 @@ join_kubernetes_cluster() {
     fi
     
     log_info "Executing kubeadm join command..."
-    log_info "Join target: $$(echo $$JOIN_COMMAND | awk '{print $$3}')"
+    log_info "Join target: $(echo $JOIN_COMMAND | awk '{print $3}')"
     
     # Execute the join command with verbose output
-    if eval "$$JOIN_COMMAND --v=5"; then
+    if eval "$${JOIN_COMMAND} --v=5"; then
         log_info "✓ Successfully joined Kubernetes cluster"
         return 0
     else
-        local exit_code=$$?
-        log_error "kubeadm join failed with exit code $$exit_code"
+        local exit_code=$?
+        log_error "kubeadm join failed with exit code $exit_code"
         
         # Show diagnostic information
         log_error "Kubelet logs:"
@@ -172,12 +172,12 @@ verify_node_readiness() {
     local config_attempts=10
     local attempt=1
     
-    while [[ $$attempt -le $$config_attempts ]]; do
+    while [[ $attempt -le $config_attempts ]]; do
         if [[ -f "/etc/kubernetes/kubelet.conf" ]]; then
             log_info "✓ Kubelet config found"
             break
         fi
-        log_info "Waiting for kubelet config... ($$attempt/$$config_attempts)"
+        log_info "Waiting for kubelet config... ($attempt/$config_attempts)"
         sleep 10
         ((attempt++))
     done
@@ -197,34 +197,34 @@ verify_node_readiness() {
     
     # Wait for node to be ready
     local hostname=""
-    hostname=$$(hostname)
+    hostname=$(hostname)
     local max_attempts=20
     attempt=1
     
-    log_info "Checking node readiness for: $$hostname"
+    log_info "Checking node readiness for: $hostname"
     
-    while [[ $$attempt -le $$max_attempts ]]; do
-        log_info "Node readiness check ($$attempt/$$max_attempts)..."
+    while [[ $attempt -le $max_attempts ]]; do
+        log_info "Node readiness check ($attempt/$max_attempts)..."
         
-        if kubectl --kubeconfig=/etc/kubernetes/kubelet.conf get node "$$hostname" \
+        if kubectl --kubeconfig=/etc/kubernetes/kubelet.conf get node "$${hostname}" \
            --no-headers 2>/dev/null | grep -q "Ready"; then
-            log_info "✓ Node '$$hostname' is Ready!"
+            log_info "✓ Node '$hostname' is Ready!"
             
             # Show final node status
-            kubectl --kubeconfig=/etc/kubernetes/kubelet.conf get node "$$hostname" -o wide | \
+            kubectl --kubeconfig=/etc/kubernetes/kubelet.conf get node "$${hostname}" -o wide | \
                 while IFS= read -r line; do
-                    log_info "  $$line"
+                    log_info "  $line"
                 done
             
             return 0
         fi
         
         # Show status every 5 attempts
-        if [[ $$((attempt % 5)) -eq 0 ]]; then
+        if [[ $((attempt % 5)) -eq 0 ]]; then
             log_info "Current node status:"
-            kubectl --kubeconfig=/etc/kubernetes/kubelet.conf get node "$$hostname" \
+            kubectl --kubeconfig=/etc/kubernetes/kubelet.conf get node "$${hostname}" \
                 2>/dev/null | while IFS= read -r line; do
-                    log_info "  $$line"
+                    log_info "  $line"
                 done || log_info "Cannot get node status yet"
         fi
         
@@ -240,7 +240,7 @@ verify_node_readiness() {
     systemctl --no-pager status kubelet || true
     
     log_error "Node events:"
-    kubectl --kubeconfig=/etc/kubernetes/kubelet.conf get events --field-selector involvedObject.name=$$hostname 2>/dev/null | tail -10 || true
+    kubectl --kubeconfig=/etc/kubernetes/kubelet.conf get events --field-selector involvedObject.name=$hostname 2>/dev/null | tail -10 || true
     
     return 1
 }
@@ -250,16 +250,16 @@ create_completion_marker() {
     
     local completion_file="/tmp/k8s_worker_setup_complete"
     
-    cat > "$$completion_file" << EOF
+    cat > "$completion_file" << EOF
 # Kubernetes Worker Node Setup Completion
-# Generated at: $$(date)
-# Hostname: $$(hostname)
-# Cluster: $$CLUSTER_NAME
+# Generated at: $(date)
+# Hostname: $(hostname)
+# Cluster: $${CLUSTER_NAME}
 # Status: Successfully joined cluster
 EOF
     
-    chmod 644 "$$completion_file"
-    log_info "✓ Completion marker created: $$completion_file"
+    chmod 644 "$completion_file"
+    log_info "✓ Completion marker created: $completion_file"
 }
 
 # =================================================================
@@ -298,7 +298,7 @@ main() {
     create_completion_marker
     
     log_info "=== Cluster Join Process Completed Successfully ==="
-    log_info "✓ Successfully joined cluster: $$CLUSTER_NAME"
+    log_info "✓ Successfully joined cluster: $${CLUSTER_NAME}"
     log_info "✓ Node verification completed"
     log_info "✓ Worker node is ready for workloads"
     
@@ -306,4 +306,4 @@ main() {
 }
 
 # Execute main function
-main "$$@"
+main "$@"

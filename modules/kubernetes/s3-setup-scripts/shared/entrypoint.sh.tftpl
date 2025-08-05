@@ -5,9 +5,9 @@ set -euxo pipefail
 # =================================================================
 # CONFIGURATION
 # =================================================================
-readonly DOWNLOAD_DIR="/tmp/k8s_scripts"
+readonly DOWNLOAD_DIR="${script_dir}"
 readonly LOG_DIR="${log_dir}"
-readonly MAIN_LOG="$LOG_DIR/entrypoint.log"
+readonly MAIN_LOG="$${LOG_DIR}/entrypoint.log"
 readonly S3_BUCKET="${s3_bucket_name}"
 readonly NODE_TYPE="${node_type}"
 readonly MAX_NETWORK_ATTEMPTS=30
@@ -18,16 +18,16 @@ readonly AWS_CLI_TIMEOUT=180
 # LOGGING SETUP
 # =================================================================
 setup_logging() {
-    mkdir -p "$LOG_DIR"
-    chown "$(whoami):$(whoami)" "$LOG_DIR" 2>/dev/null || true
+    mkdir -p "$${LOG_DIR}"
+    chown "$(whoami)" "$${LOG_DIR}" 2>/dev/null || true
     
-    # Setup log rotation for this session
-    exec > >(tee -a "$MAIN_LOG") 2>&1
+    # Setup log redirection (safer method)
+    exec >> "$MAIN_LOG" 2>&1
     
     echo "=== Entrypoint started at $(date) ==="
-    echo "S3 Bucket: $S3_BUCKET"
-    echo "Download Dir: $DOWNLOAD_DIR"
-    echo "Log Dir: $LOG_DIR"
+    echo "S3 Bucket: $${S3_BUCKET}"
+    echo "Download Dir: $${DOWNLOAD_DIR}"
+    echo "Log Dir: $${LOG_DIR}"
 }
 
 # =================================================================
@@ -39,13 +39,13 @@ wait_for_network() {
 
     echo "=== Network Validation (IMDSv2) ==="
 
-    while [ $attempt -lt $MAX_NETWORK_ATTEMPTS ]; do
+    while [ "$attempt" -lt "$MAX_NETWORK_ATTEMPTS" ]; do
         attempt=$((attempt + 1))
         
         # Progressive backoff
-        if [ $attempt -gt 1 ]; then
+        if [ "$attempt" -gt 1 ]; then
             local delay
-            if [ $attempt -le 5 ]; then
+            if [ "$attempt" -le 5 ]; then
                 delay=$((attempt * 2))
             else
                 delay=$((10 + (attempt - 5) * 3))
@@ -61,24 +61,26 @@ wait_for_network() {
         fi
 
         # Try to get IMDSv2 token with timeout
+        local token
         if token=$(timeout 10 curl -sSf -X PUT \
                      "http://169.254.169.254/latest/api/token" \
                      -H "X-aws-ec2-metadata-token-ttl-seconds: $token_ttl" \
                      --connect-timeout 3 --retry 1 2>/dev/null); then
             
             # Validate token by fetching instance ID
+            local instance_id
             if instance_id=$(timeout 10 curl -sSf \
-                               -H "X-aws-ec2-metadata-token: $token" \
+                               -H "X-aws-ec2-metadata-token: $${token}" \
                                --connect-timeout 3 --retry 1 \
                                "http://169.254.169.254/latest/meta-data/instance-id" 2>/dev/null); then
-                echo "✓ Network validated (Instance: $instance_id)"
-                export AWS_METADATA_TOKEN="$token"  # Export for later use
+                echo "✓ Network validated (Instance: $${instance_id})"
+                export AWS_METADATA_TOKEN="$${token}"  # Export for later use
                 return 0
             fi
         fi
 
         # Final attempt debugging
-        if [ $attempt -eq $MAX_NETWORK_ATTEMPTS ]; then
+        if [ "$attempt" -eq "$MAX_NETWORK_ATTEMPTS" ]; then
             echo "✗ Network validation failed - diagnostics:"
             echo "Network interfaces:"
             ip -br -c addr show 2>/dev/null || ip addr show 2>/dev/null || true
@@ -103,7 +105,7 @@ prepare_apt_basic() {
     
     # Just ensure apt isn't locked by cloud-init processes
     local attempt=0
-    while [ $attempt -lt $MAX_APT_ATTEMPTS ]; do
+    while [ "$attempt" -lt "$MAX_APT_ATTEMPTS" ]; do
         if ! fuser /var/lib/dpkg/lock-frontend >/dev/null 2>&1 && \
            ! fuser /var/lib/apt/lists/lock >/dev/null 2>&1; then
             echo "✓ APT is available"
@@ -128,15 +130,15 @@ install_aws_cli() {
         echo "✓ AWS CLI already installed: $(aws --version)"
         return 0
     fi
- bb
     echo "=== Installing AWS CLI ==="
     
     # Update package list (basic retry)
     local apt_attempts=3
-    for i in $(seq 1 $apt_attempts); do
+    local i
+    for i in $(seq 1 "$apt_attempts"); do
         if apt-get update -y >/dev/null 2>&1; then
             break
-        elif [ $i -eq $apt_attempts ]; then
+        elif [ "$i" -eq "$apt_attempts" ]; then
             echo "WARNING: apt-get update failed, continuing anyway"
         fi
         sleep 10
@@ -152,11 +154,12 @@ install_aws_cli() {
     # Download and install AWS CLI with timeout
     local aws_url="https://awscli.amazonaws.com/awscli-exe-linux-aarch64.zip"
     local download_attempts=3
+    local attempt
     
-    for attempt in $(seq 1 $download_attempts); do
+    for attempt in $(seq 1 "$download_attempts"); do
         echo "Downloading AWS CLI (attempt $attempt/$download_attempts)..."
         
-        if timeout $AWS_CLI_TIMEOUT curl --retry 2 --retry-delay 10 \
+        if timeout "$AWS_CLI_TIMEOUT" curl --retry 2 --retry-delay 10 \
              -sSL "$aws_url" -o /tmp/awscliv2.zip; then
             
             if unzip -q /tmp/awscliv2.zip -d /tmp && \
@@ -167,7 +170,9 @@ install_aws_cli() {
             fi
         fi
         
-        [ $attempt -lt $download_attempts ] && sleep $((attempt * 10))
+        if [ "$attempt" -lt "$download_attempts" ]; then
+            sleep $((attempt * 10))
+        fi
     done
     
     echo "ERROR: Failed to install AWS CLI after $download_attempts attempts"
@@ -180,21 +185,22 @@ install_aws_cli() {
 download_and_validate_scripts() {
     echo "=== Downloading Scripts from S3 ==="
     
-    mkdir -p "$DOWNLOAD_DIR"
+    mkdir -p "$${DOWNLOAD_DIR}"
     
     # Download with retries
     local download_attempts=3
-    for attempt in $(seq 1 $download_attempts); do
+    local attempt
+    for attempt in $(seq 1 "$download_attempts"); do
         echo "Download attempt $attempt/$download_attempts..."
         
-        if aws s3 cp "s3://$S3_BUCKET/scripts/${node_type}" "$DOWNLOAD_DIR/" \
+        if aws s3 cp "s3://$${S3_BUCKET}/scripts/$${node_type}" "$${DOWNLOAD_DIR}/" \
            --recursive --quiet; then
             echo "✓ Scripts downloaded successfully"
             break
         fi
 
         
-        if [ $attempt -eq $download_attempts ]; then
+        if [ "$attempt" -eq "$download_attempts" ]; then
             echo "ERROR: Failed to download scripts after $download_attempts attempts"
             return 1
         fi
@@ -206,8 +212,8 @@ download_and_validate_scripts() {
     # Validate downloaded scripts
     echo "=== Validating Downloaded Scripts ==="
     
-    if [ ! -d "$DOWNLOAD_DIR" ] || [ -z "$(ls -A "$DOWNLOAD_DIR"/*.sh 2>/dev/null)" ]; then
-        echo "ERROR: No scripts found in $DOWNLOAD_DIR"
+    if [ ! -d "$${DOWNLOAD_DIR}" ] || [ -z "$(ls -A "$${DOWNLOAD_DIR}"/*.sh 2>/dev/null)" ]; then
+        echo "ERROR: No scripts found in $${DOWNLOAD_DIR}"
         return 1
     fi
     
@@ -216,20 +222,21 @@ download_and_validate_scripts() {
         "00-shared-functions.sh"
         "k8s-setup-main.sh"
     )
+    local file
     
     for file in "$${required_files[@]}"; do
-        if [ ! -f "$DOWNLOAD_DIR/$file" ]; then
+        if [ ! -f "$${DOWNLOAD_DIR}/$file" ]; then
             echo "ERROR: Required file missing: $file"
             return 1
         fi
     done
     
     # Make all scripts executable
-    chmod +x "$DOWNLOAD_DIR"/*.sh
+    chmod +x "$${DOWNLOAD_DIR}"/*.sh
     
     echo "✓ Script validation completed"
     echo "Available scripts:"
-    ls -la "$DOWNLOAD_DIR"/*.sh
+    ls -la "$${DOWNLOAD_DIR}"/*.sh
 }
 
 # =================================================================
@@ -242,20 +249,22 @@ execute_setup_scripts() {
     export SCRIPT_EXECUTION_MODE="entrypoint"
     
     # Execute the main orchestrator script
-    local main_script="$DOWNLOAD_DIR/k8s-setup-main.sh"
+    local main_script="$${DOWNLOAD_DIR}/k8s-setup-main.sh"
     
-    if [ -f "$main_script" ]; then
-        echo "Starting main setup script: $main_script"
+    if [ -f "$${main_script}" ]; then
+        echo "Starting main setup script: $${main_script}"
         
-        if "$main_script"; then
+        if "$${main_script}"; then
             echo "✓ Setup completed successfully"
             return 0
         else
-            echo "✗ Setup script failed with exit code $?"
+            local exit_code=$?
+            echo "✗ Setup script failed with exit code $exit_code"
             return 1
         fi
     else
-        echo "ERROR: Main setup script not found: $main_script"
+        echo "ERROR: Main setup script not found: $${main_script}"
+        return 1
     fi
 }
 
@@ -276,9 +285,9 @@ cleanup_on_error() {
     ps aux | head -20 || true
     
     # Don't cleanup download dir on error for debugging
-    echo "Scripts preserved in $DOWNLOAD_DIR for debugging"
+    echo "Scripts preserved in $${DOWNLOAD_DIR} for debugging"
     
-    exit $exit_code
+    exit "$exit_code"
 }
 
 trap cleanup_on_error ERR
@@ -312,7 +321,7 @@ main() {
     fi
     
     echo "=== Entrypoint completed successfully at $(date) ==="
-    echo "Full logs available at: $MAIN_LOG"
+    echo "Full logs available at: $${MAIN_LOG}"
 }
 
 # Execute main function

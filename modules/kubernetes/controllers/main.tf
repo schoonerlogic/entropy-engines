@@ -93,6 +93,7 @@ locals {
     s3_bucket_name = local.scripts_bucket_name
     node_type      = "controllers"
     log_dir        = "/var/log/provisioning"
+    script_dir     = "/tmp/k8s_scripts"
   }
 
   # k8s_setup_main_vars
@@ -105,6 +106,7 @@ locals {
     k8s_user                   = local.k8s_user
     k8s_major_minor_stream     = local.k8s_major_minor_stream
     k8s_package_version_string = local.k8s_package_version_string
+    script_dir                 = "/tmp/k8s_scripts"
   }
 
   # Controller-specific template variables
@@ -117,6 +119,8 @@ locals {
     ssm_certificate_key_path = local.ssm_certificate_key_path
     aws_region               = data.aws_region.current.name
     bucket_name              = local.scripts_bucket_name
+    wait_interval            = 15
+    script_dir               = "/tmp/k8s_scripts"
   })
 
   # Shared scripts (used by controllers)

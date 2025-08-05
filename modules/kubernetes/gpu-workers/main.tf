@@ -6,44 +6,6 @@
 #===============================================================================
 
 locals {
-  # Script base path
-  script_base_path = "${path.module}/../s3-setup-scripts"
-
-
-  # GPU Worker template variables (might have GPU-specific vars)
-  cluster_name = var.cluster_name
-  environment  = var.environment
-
-  # k8s_setup_main_vars
-  k8s_main_setup_main_vars = {
-    script_dir = "/tmp/k8s_scripts"
-  }
-
-  # shared_functions 
-  shared_functions_vars = {
-    log_dir = "/var/log/provisioning"
-  }
-
-  # Entrypoint variable
-  entrypoint_vars = {
-    s3_bucket_name = var.k8s_scripts_bucket_name
-    node_type      = "workers"
-    log_dir        = "/var/log/provisioning"
-  }
-
-  # Template variables for shared scripts
-  shared_template_vars = {
-    k8s_user                   = var.k8s_user
-    k8s_major_minor_stream     = var.k8s_major_minor_stream
-    k8s_package_version_string = var.k8s_package_version_string
-  }
-
-  # Template variables for GPU worker-specific scripts
-  gpu_worker_template_vars = merge(local.shared_template_vars, {
-    cluster_name          = var.cluster_name
-    ssm_join_command_path = var.ssm_join_command_path
-  })
-
   # Common tags
   common_tags = {
     Cluster     = local.cluster_name
@@ -70,6 +32,48 @@ locals {
 # =================================================================
 
 locals {
+  # Script base path
+  script_base_path = "${path.module}/../s3-setup-scripts"
+
+
+  # GPU Worker template variables (might have GPU-specific vars)
+  cluster_name = var.cluster_name
+  environment  = var.environment
+
+  # k8s_setup_main_vars
+  k8s_main_setup_main_vars = {
+    script_dir = "/tmp/k8s_scripts"
+  }
+
+  # shared_functions 
+  shared_functions_vars = {
+    log_dir = "/var/log/provisioning"
+  }
+
+  # Entrypoint variable
+  entrypoint_vars = {
+    s3_bucket_name = var.k8s_scripts_bucket_name
+    node_type      = "workers"
+    log_dir        = "/var/log/provisioning"
+    script_dir     = "/tmp/k8s_scripts"
+  }
+
+  # Template variables for shared scripts
+  shared_template_vars = {
+    k8s_user                   = var.k8s_user
+    k8s_major_minor_stream     = var.k8s_major_minor_stream
+    k8s_package_version_string = var.k8s_package_version_string
+    script_dir                 = "/tmp/k8s_scripts"
+  }
+
+  # Template variables for GPU worker-specific scripts
+  gpu_worker_template_vars = merge(local.shared_template_vars, {
+    cluster_name          = var.cluster_name
+    ssm_join_command_path = var.ssm_join_command_path
+    script_dir            = "/tmp/k8s_scripts"
+  })
+
+
   # Shared scripts (used by both controllers and workers)
   shared_scripts = {
     "00-shared-functions" = {
