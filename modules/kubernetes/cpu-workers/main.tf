@@ -20,7 +20,8 @@ locals {
 
   # shared_functions 
   shared_functions_vars = {
-    log_dir = "/var/log/provisioning"
+    log_dir   = "/var/log/provisioning"
+    log_level = var.log_level
   }
 
   # Entrypoint variable
@@ -53,6 +54,8 @@ locals {
     NodeType    = "cpu-worker"
     ManagedBy   = "terraform"
   }
+
+  script_dependencies = aws_s3_object.cpu_worker_scripts
 }
 
 # =================================================================
@@ -117,7 +120,7 @@ resource "aws_s3_object" "cpu_worker_scripts" {
   content_type = "text/plain"
 
   # Generate ETag based on content for change detection
-  etag = md5(length(each.value.vars) > 0 ? templatefile(each.value.template_path, each.value.vars) : file(each.value.template_path))
+  etag = md5(templatefile(each.value.template_path, each.value.vars))
 
   tags = merge(local.common_tags, {
     Name = each.key

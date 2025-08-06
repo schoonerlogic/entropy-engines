@@ -22,7 +22,7 @@ setup_logging() {
     chown "$(whoami)" "$${LOG_DIR}" 2>/dev/null || true
     
     # Setup log redirection (safer method)
-    exec >> "$MAIN_LOG" 2>&1
+    exec > >(tee -a "$${MAIN_LOG}") 2>&1
     
     echo "=== Entrypoint started at $(date) ==="
     echo "S3 Bucket: $${S3_BUCKET}"
@@ -81,7 +81,7 @@ wait_for_network() {
 
         # Final attempt debugging
         if [ "$attempt" -eq "$MAX_NETWORK_ATTEMPTS" ]; then
-            echo "✗ Network validation failed - diagnostics:"
+            echo "Network validation failed - diagnostics:"
             echo "Network interfaces:"
             ip -br -c addr show 2>/dev/null || ip addr show 2>/dev/null || true
             echo "Routes:"
@@ -193,7 +193,7 @@ download_and_validate_scripts() {
     for attempt in $(seq 1 "$download_attempts"); do
         echo "Download attempt $attempt/$download_attempts..."
         
-        if aws s3 cp "s3://$${S3_BUCKET}/scripts/$${node_type}" "$${DOWNLOAD_DIR}/" \
+        if aws s3 cp "s3://$${S3_BUCKET}/scripts/${node_type}" "$${DOWNLOAD_DIR}/" \
            --recursive --quiet; then
             echo "✓ Scripts downloaded successfully"
             break

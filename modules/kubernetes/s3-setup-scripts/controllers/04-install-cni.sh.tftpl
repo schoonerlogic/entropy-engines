@@ -3,32 +3,38 @@
 # Refactored to use shared functions architecture
 # Installs and configures CNI plugin (Calico), sets up kubectl for target user, and finalizes cluster
 
-set -euxo pipefail
-
 # =================================================================
 # SHARED FUNCTIONS INTEGRATION
 # =================================================================
 SCRIPT_DIR=${script_dir}
-if [ -z "$${SYSTEM_PREPARED:-}" ] && [ ! -f "/tmp/.system_prepared" ]; then
-    # shellcheck source=/dev/null
-    if [ -f "$${SCRIPT_DIR}/00-shared-functions.sh" ]; then
-        source "$${SCRIPT_DIR}/00-shared-functions.sh"
-        
-        # Verify essential functions are available
-        if command -v log_info >/dev/null 2>&1; then
-            log_info "Shared functions loaded successfully"
-        else
-            echo "ERROR: Shared functions loaded but log_info not available"
-            exit 1
-        fi
+
+# load shared functions
+if [ -f "$${SCRIPT_DIR}/00-shared-functions.sh" ]; then
+    source "$${SCRIPT_DIR}/00-shared-functions.sh"
+    
+    # Verify essential functions are available
+    if command -v log_info >/dev/null 2>&1; then
+        log_info "Shared functions loaded successfully"
     else
-        echo "ERROR: Cannot find shared functions file: $${SCRIPT_DIR}/00-shared-functions.sh"
+        echo "ERROR: Shared functions loaded but log_info not available"
         exit 1
     fi
+else
+    echo "ERROR: Cannot find shared functions file: $${SCRIPT_DIR}/00-shared-functions.sh"
+    exit 1
 fi
 
 setup_logging
-prepare_system_once
+
+log_info "Starting K8s setup with log level: $${LOG_LEVEL}"
+
+if [ -z "$${SYSTEM_PREPARED:-}" ] && [ ! -f "/tmp/.system_prepared" ]; then
+    log_info "System not yet prepared, running preparation..."
+    prepare_system_once
+else
+    log_info "System already prepared, skipping preparation"
+fi
+
 
 
 # =================================================================

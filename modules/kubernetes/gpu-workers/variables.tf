@@ -21,6 +21,18 @@ variable "environment" {
   default     = "dev"
 }
 
+variable "log_level" {
+  description = "Logging verbosity: ERROR, WARN, INFO, DEBUG, TRACE"
+  type        = string
+  default     = "INFO"
+
+  validation {
+    condition     = contains(["ERROR", "WARN", "INFO", "DEBUG", "TRACE"], var.log_level)
+    error_message = "Invalid log level. Must be ERROR, WARN, INFO, DEBUG, or TRACE."
+  }
+}
+
+
 #===============================================================================
 # Kubernetes Configuration
 #===============================================================================
@@ -42,12 +54,12 @@ variable "k8s_major_minor_stream" {
 }
 
 variable "k8s_package_version_string" {
-  description = "Full Kubernetes package version string for apt (e.g., 1.33.1-00)"
+  description = "Full Kubernetes package version string for apt (e.g., 1.33.1-00 or 1.33.1-1.1)"
   type        = string
 
   validation {
-    condition     = can(regex("^[0-9]+\\.[0-9]+\\.[0-9]+-[0-9]+$", var.k8s_package_version_string))
-    error_message = "Package version must be in format 'major.minor.patch-suffix' (e.g., 1.33.1-00)."
+    condition     = can(regex("^[0-9]+\\.[0-9]+\\.[0-9]+-[0-9]+(\\.[0-9]+)?$", var.k8s_package_version_string))
+    error_message = "Package version must be in format 'major.minor.patch-suffix' or 'major.minor.patch-suffix.suffix2' (e.g., 1.33.1-00 or 1.33.1-1.1)."
   }
 }
 

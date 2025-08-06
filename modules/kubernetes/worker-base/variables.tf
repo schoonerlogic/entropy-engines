@@ -155,6 +155,12 @@ variable "instance_warmup" {
   default     = 300
 }
 
+variable "script_dependencies" {
+  description = "Script objects to trigger launch template replacement"
+  type        = any
+  default     = {}
+}
+
 #===============================================================================
 # Storage Configuration
 #===============================================================================

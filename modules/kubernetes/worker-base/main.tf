@@ -88,12 +88,15 @@ resource "aws_launch_template" "worker_lt" {
   image_id = var.base_aws_ami
   key_name = var.ssh_key_name
 
-  # Simplified user data - just downloads and runs entrypoint
-  # Script management now handled by cpu-workers/ and gpu-workers/ modules
+  # User data with script dependencies hash
   user_data = base64encode(templatefile("${path.module}/templates/user_data.sh.tftpl", {
     s3_bucket_name = var.k8s_scripts_bucket_name
     node_type      = "worker"
     script_prefix  = "workers"
+    # Force new template when scripts change
+    scripts_hash = var.script_dependencies != {} ? md5(jsonencode([
+      for k, v in var.script_dependencies : v.etag
+    ])) : timestamp()
   }))
 
   iam_instance_profile {

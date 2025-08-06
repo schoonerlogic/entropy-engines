@@ -85,7 +85,8 @@ locals {
 
   # shared_functions 
   shared_functions_vars = {
-    log_dir = "/var/log/provisioning"
+    log_dir   = "/var/log/provisioning"
+    log_level = var.log_level
   }
 
   # entrypoint_vars 
@@ -130,10 +131,10 @@ locals {
       vars          = local.shared_functions_vars
       s3_key        = "scripts/controllers/00-shared-functions.sh"
     }
-    "01-install-user-and-tooling" = {
-      template_path = "${local.script_base_path}/shared/01-install-user-and-tooling.sh.tftpl"
-      vars          = local.shared_template_vars
-      s3_key        = "scripts/controllers/01-install-user-and-tooling.sh"
+    "001-ec2-metadata-lib" = {
+      template_path = "${local.script_base_path}/shared/001-ec2-metadata-lib.sh.tftpl"
+      vars          = {}
+      s3_key        = "scripts/controllers/001-ec2-metadata-lib.sh"
     }
     "entrypoint" = {
       template_path = "${local.script_base_path}/shared/entrypoint.sh.tftpl"
@@ -180,6 +181,8 @@ resource "aws_s3_object" "controller_scripts" {
 
   content_type = "text/plain"
 
+  etag = md5(templatefile(each.value.template_path, each.value.vars))
+
   tags = merge(local.common_tags, {
     Type = "controller-script"
   })
@@ -211,10 +214,17 @@ resource "aws_launch_template" "controller_lt" {
   image_id = local.base_aws_ami
   key_name = local.ssh_key_name
 
-  # User data for self-bootstrapping control plane
+  # User data with script dependencies hash
   user_data = base64encode(templatefile(
     local.shared_scripts.entrypoint.template_path,
-    local.shared_scripts.entrypoint.vars
+    merge(local.shared_scripts.entrypoint.vars, {
+      # Force new template when scripts change
+      scripts_hash = var.script_dependencies != {} ? md5(jsonencode([
+        for k, v in var.script_dependencies : v.etag
+        ])) : md5(jsonencode([
+        for k, v in aws_s3_object.controller_scripts : v.etag
+      ]))
+    })
   ))
 
   iam_instance_profile {
@@ -324,7 +334,6 @@ resource "aws_autoscaling_group" "controller_asg" {
       min_healthy_percentage = var.min_healthy_percentage
       instance_warmup        = 600 # Control plane needs more time to bootstrap
     }
-    triggers = ["tag"]
   }
 
   dynamic "tag" {

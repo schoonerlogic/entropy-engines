@@ -445,7 +445,7 @@ variable "k8s_config" {
     k8s_user               = optional(string, "ubuntu")
     k8s_major_minor_stream = optional(string, "1.33.3")
     k8s_full_patch_version = optional(string, "1.33.0")
-    k8s_apt_package_suffix = optional(string, "-00")
+    k8s_apt_package_suffix = optional(string, "-0.0")
   })
   default = {}
 }

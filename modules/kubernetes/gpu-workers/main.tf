@@ -47,7 +47,8 @@ locals {
 
   # shared_functions 
   shared_functions_vars = {
-    log_dir = "/var/log/provisioning"
+    log_dir   = "/var/log/provisioning"
+    log_level = var.log_level
   }
 
   # Entrypoint variable
@@ -134,8 +135,9 @@ resource "aws_s3_object" "gpu_worker_scripts" {
 
   content_type = "text/plain"
 
+
   # Generate ETag based on content for change detection
-  etag = md5(length(each.value.vars) > 0 ? templatefile(each.value.template_path, each.value.vars) : file(each.value.template_path))
+  etag = md5(templatefile(each.value.template_path, each.value.vars))
 
   tags = merge(local.common_tags, {
     Type = "gpu-worker-script"
@@ -194,6 +196,8 @@ module "gpu_worker_base" {
   # GPU workers don't have GPU-specific settings
   gpu_type       = null
   gpu_memory_min = null
+
+  script_dependencies = aws_s3_object.gpu_worker_scripts
 
   # Ensure scripts are uploaded before infrastructure is created
   depends_on = [aws_s3_object.gpu_worker_scripts]

@@ -3,18 +3,23 @@
 # Shared functions for all K8s setup scripts
 
 # Global settings that all scripts should use
-set -euxo pipefail
 export DEBIAN_FRONTEND=noninteractive
 
 # Global variables
 SYSTEM_PREPARED=false
 
-readonly LOG_DIR="${log_dir}"
+# =================================================================
+# ENHANCED LOGGING SETUP WITH VERBOSITY CONTROL
+# =================================================================
 
-# =================================================================
-# LOGGING SETUP
-# =================================================================
 setup_logging() {
+    # Configuration from environment or defaults
+    local LOG_DIR=${log_dir}
+    local LOG_LEVEL=${log_level}
+    local LOG_LEVEL="$${LOG_LEVEL:-INFO}"
+    local DEBUG_MODE="$${DEBUG:-0}"
+    
+    # Create log directory
     mkdir -p "$${LOG_DIR}"
     chown "$(whoami):$(whoami)" "$${LOG_DIR}" 2>/dev/null || true
     
@@ -23,31 +28,125 @@ setup_logging() {
     if [[ -n "$${1:-}" ]]; then
         script_name="$1"
     else
-        script_name="$(basename "$${BASH_SOURCE[1]}" .sh).log"
+        script_name="$(basename "$${BASH_SOURCE[1]}" .sh)"
     fi
     
-    local full_log_path="$${LOG_DIR}/$script_name"
+    # Setup log file paths
+    full_log_path="$${LOG_DIR}/$${script_name}.log"
+    error_log_path="$${LOG_DIR}/$${script_name}-error.log"
+    debug_log_path="$${LOG_DIR}/$${script_name}-debug.log"
+    trace_log_path="$${LOG_DIR}/$${script_name}-trace.log"
     
-    # Setup log redirection
-    exec >>(tee -a "$${full_log_path}") 2>&1
+    # Configure bash behavior and logging based on log level
+    case "$${LOG_LEVEL}" in
+        ERROR)
+            # Only errors, no info output
+            set -euo pipefail
+            exec 1>/dev/null
+            exec 2> >(tee -a "$${error_log_path}")
+            ;;
+        WARN)
+            # Warnings and errors only
+            set -euo pipefail
+            exec 1> >(tee -a "$${full_log_path}")
+            exec 2> >(tee -a "$${error_log_path}" >&2)
+            ;;
+        INFO)
+            # Normal logging (your current behavior minus the -x)
+            set -euo pipefail
+            exec 1> >(tee -a "$${full_log_path}")
+            exec 2> >(tee -a "$${error_log_path}" >&2)
+            ;;
+        DEBUG)
+            # Include debug messages, no bash tracing
+            set -euo pipefail
+            export DEBUG=1
+            exec 1> >(tee -a "$${full_log_path}")
+            exec 2> >(tee -a "$${error_log_path}" >&2)
+            ;;
+        TRACE)
+            # Full bash tracing (your current set -euxo pipefail behavior)
+            set -euo pipefail
+            export DEBUG=1
+            # Send trace output to separate file to keep main log clean
+            exec 19> "$${trace_log_path}"
+            BASH_XTRACEFD=19
+            set -x
+            exec 1> >(tee -a "$${full_log_path}")
+            exec 2> >(tee -a "$${error_log_path}" >&2)
+            ;;
+        *)
+            # Default to INFO for unknown levels
+            set -euo pipefail
+            exec 1> >(tee -a "$${full_log_path}")
+            exec 2> >(tee -a "$${error_log_path}" >&2)
+            ;;
+    esac
     
-    log_info "Logging setup complete. Log file: $full_log_path"
+    # Export log paths for use by other functions
+    export MAIN_LOG_PATH="$${full_log_path}"
+    export ERROR_LOG_PATH="$${error_log_path}"
+    export DEBUG_LOG_PATH="$${debug_log_path}"
+    export TRACE_LOG_PATH="$${trace_log_path}"
 }
 
-setup_logging 
+# Enhanced logging functions with level control
+log_trace() {
+    [[ "$${LOG_LEVEL:-INFO}" == "TRACE" ]] && echo "[TRACE $(date '+%Y-%m-%d %H:%M:%S')] $*" >&2
+}
 
-# Logging functions
+log_debug() {
+    [[ "$${DEBUG:-0}" == "1" ]] && echo "[DEBUG $(date '+%Y-%m-%d %H:%M:%S')] $*" >&2
+}
+
 log_info() {
-    echo "[INFO $(date '+%Y-%m-%d %H:%M:%S')] $*"
+    # Only output if log level allows info or higher
+    case "$${LOG_LEVEL:-INFO}" in
+        ERROR) return 0 ;;  # Skip info in ERROR mode
+        *) echo "[INFO $(date '+%Y-%m-%d %H:%M:%S')] $*" ;;
+    esac
 }
 
 log_warn() {
-    echo "[WARN $(date '+%Y-%m-%d %H:%M:%S')] $*"
+    echo "[WARN $(date '+%Y-%m-%d %H:%M:%S')] $*" >&2
 }
 
 log_error() {
-    echo "[ERROR $(date '+%Y-%m-%d %H:%M:%S')] $*"
+    echo "[ERROR $(date '+%Y-%m-%d %H:%M:%S')] $*" >&2
 }
+
+log_fatal() {
+    echo "[FATAL $(date '+%Y-%m-%d %H:%M:%S')] $*" >&2
+    exit 1
+}
+
+# Utility function to temporarily disable tracing for clean output sections
+quiet_exec() {
+    local old_x_state
+    old_x_state=$(set +o | grep xtrace)
+    set +x
+    "$@"
+    eval "$old_x_state"
+}
+
+# Show current logging configuration (useful for debugging)
+log_config_info() {
+    echo "=== Logging Configuration ==="
+    echo "Log Level: $${LOG_LEVEL:-INFO}"
+    echo "Debug Mode: $${DEBUG:-0}"
+    echo "Main Log: $${MAIN_LOG_PATH:-<not set>}"
+    echo "Error Log: $${ERROR_LOG_PATH:-<not set>}"
+    echo "Bash Tracing: $${-/*x*/ENABLED}"
+    echo "=========================="
+}
+
+# Initialize logging
+setup_logging
+
+# Log the configuration
+log_info "Logging setup complete. Log file: $${MAIN_LOG_PATH}"
+log_debug "Debug logging enabled"
+log_trace "Trace logging enabled"
 
 
 SYSTEM_PREPARED_FILE="/tmp/system_prepared"

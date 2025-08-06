@@ -1,45 +1,60 @@
 #!/bin/bash
-# 03-configure-control-plane.sh.tftpl
 # Refactored to use shared functions architecture
 # Configures Kubernetes control plane - either initializes cluster (primary) or joins it (secondary)
-
-set -euxo pipefail
 
 # =================================================================
 # SHARED FUNCTIONS INTEGRATION
 # =================================================================
 SCRIPT_DIR=${script_dir}
-if [ -z "$${SYSTEM_PREPARED:-}" ] && [ ! -f "/tmp/.system_prepared" ]; then
-    # shellcheck source=/dev/null
-    if [ -f "$${SCRIPT_DIR}/00-shared-functions.sh" ]; then
-        source "$${SCRIPT_DIR}/00-shared-functions.sh"
-        
-        # Verify essential functions are available
-        if command -v log_info >/dev/null 2>&1; then
-            log_info "Shared functions loaded successfully"
-        else
-            echo "ERROR: Shared functions loaded but log_info not available"
-            exit 1
-        fi
+
+# load shared functions
+if [ -f "$${SCRIPT_DIR}/00-shared-functions.sh" ]; then
+    source "$${SCRIPT_DIR}/00-shared-functions.sh"
+    
+    # Verify essential functions are available
+    if command -v log_info >/dev/null 2>&1; then
+        log_info "Shared functions loaded successfully"
     else
-        echo "ERROR: Cannot find shared functions file: $${SCRIPT_DIR}/00-shared-functions.sh"
+        echo "ERROR: Shared functions loaded but log_info not available"
         exit 1
     fi
-fi
+else
+    echo "ERROR: Cannot find shared functions file: $${SCRIPT_DIR}/00-shared-functions.sh"
+    exit 1
+fi 
 
 setup_logging
-prepare_system_once
 
+log_info "Starting K8s setup with log level: $${LOG_LEVEL}"
+
+if [ -z "$${SYSTEM_PREPARED:-}" ] && [ ! -f "/tmp/.system_prepared" ]; then
+    log_info "System not yet prepared, running preparation..."
+    prepare_system_once
+else
+    log_info "System already prepared, skipping preparation"
+fi
+
+# =================================================================
+# SHARED EC2 METADATA
+# =================================================================
+source "$${SCRIPT_DIR}/001-ec2-metadata-lib.sh"
+ec2_ensure_metadata || exit 1
+
+# Initialize metadata (will cache for other scripts)
+if ! ec2_init_metadata; then
+    echo "FATAL: Failed to retrieve EC2 metadata" >&2
+    exit 1
+fi
 
 # =================================================================
 # CONFIGURATION VARIABLES (from Terraform)
 # =================================================================
-readonly CLUSTER_NAME="$${cluster_name}"
-readonly K8S_VERSION="$${k8s_full_patch_version}"
-readonly POD_CIDR_BLOCK="$${pod_cidr_block}"
-readonly SERVICE_CIDR_BLOCK="$${service_cidr_block}"
-readonly SSM_JOIN_COMMAND_PATH="$${ssm_join_command_path}"
-readonly SSM_CERTIFICATE_KEY_PATH="$${ssm_certificate_key_path}"
+readonly CLUSTER_NAME=${cluster_name}
+readonly K8S_VERSION=${k8s_full_patch_version}
+readonly POD_CIDR_BLOCK=${pod_cidr_block}
+readonly SERVICE_CIDR_BLOCK=${service_cidr_block}
+readonly SSM_JOIN_COMMAND_PATH=${ssm_join_command_path}
+readonly SSM_CERTIFICATE_KEY_PATH=${ssm_certificate_key_path}
 readonly PRIMARY_PARAM="/k8s/$${CLUSTER_NAME}/primary-controller"
 
 log_info "=== Control Plane Configuration Started ==="
@@ -47,63 +62,6 @@ log_info "Cluster Name: $${CLUSTER_NAME}"
 log_info "Kubernetes Version: $${K8S_VERSION}"
 log_info "Pod CIDR: $${POD_CIDR_BLOCK}"
 log_info "Service CIDR: $${SERVICE_CIDR_BLOCK}"
-
-# =================================================================
-# INSTANCE METADATA AND REGION DETECTION
-# =================================================================
-get_instance_info() {
-    log_info "Retrieving instance information..."
-    
-    # Get metadata token (reuse if already available)
-    if [ -z "$${AWS_METADATA_TOKEN:-}" ]; then
-        local token=""
-        local max_attempts=5
-        
-        for attempt in $(seq 1 $max_attempts); do
-            if token=$(curl -X PUT "http://169.254.169.254/latest/api/token" \
-                         -H "X-aws-ec2-metadata-token-ttl-seconds: 21600" \
-                         -s --max-time 10 --connect-timeout 5 2>/dev/null); then
-                export AWS_METADATA_TOKEN="$${token}"
-                break
-            fi
-            
-            if [ $attempt -lt $max_attempts ]; then
-                log_warn "Failed to get metadata token, retrying..."
-                sleep $((attempt * 2))
-            fi
-        done
-        
-        if [ -z "$${AWS_METADATA_TOKEN:-}" ]; then
-            log_error "Failed to get IMDSv2 token after $max_attempts attempts"
-            return 1
-        fi
-    fi
-    
-    # Get instance IP
-    if ! INSTANCE_IP=$(curl -H "X-aws-ec2-metadata-token: $${AWS_METADATA_TOKEN}" \
-                         -s --max-time 10 --connect-timeout 5 \
-                         "http://169.254.169.254/latest/meta-data/local-ipv4" 2>/dev/null); then
-        log_error "Failed to retrieve instance IP"
-        return 1
-    fi
-    
-    # Get region from instance identity
-    if ! INSTANCE_REGION=$(curl -H "X-aws-ec2-metadata-token: $${AWS_METADATA_TOKEN}" \
-                             -s --max-time 10 --connect-timeout 5 \
-                             "http://169.254.169.254/latest/dynamic/instance-identity/document" 2>/dev/null | \
-                           jq -r .region 2>/dev/null); then
-        log_error "Failed to retrieve instance region"
-        return 1
-    fi
-    
-    export INSTANCE_IP
-    export INSTANCE_REGION
-    
-    log_info "Instance IP: $${INSTANCE_IP}"
-    log_info "Instance Region: $${INSTANCE_REGION}"
-    
-    return 0
-}
 
 # =================================================================
 # CONTROLLER ROLE DETERMINATION
@@ -450,12 +408,6 @@ validate_cluster() {
 # =================================================================
 main() {
     log_info "Starting control plane configuration..."
-    
-    # Get instance information
-    if ! get_instance_info; then
-        log_error "Failed to retrieve instance information"
-        return 1
-    fi
     
     # Determine controller role
     if ! determine_controller_role; then
