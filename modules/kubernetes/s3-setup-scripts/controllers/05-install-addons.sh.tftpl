@@ -6,7 +6,7 @@
 # =================================================================
 # SHARED FUNCTIONS INTEGRATION
 # =================================================================
-SCRIPT_DIR=${script_dir}
+SCRIPT_DIR="${script_dir}"
 
 # load shared functions
 if [ -f "$${SCRIPT_DIR}/00-shared-functions.sh" ]; then
@@ -24,11 +24,11 @@ else
     exit 1
 fi
 
-setup_logging
+setup_logging "install-addons"
 
 log_info "Starting K8s setup with log level: $${LOG_LEVEL}"
 
-if [ -z "$${SYSTEM_PREPARED:-}" ] && [ ! -f "/tmp/.system_prepared" ]; then
+if [ -z "$SYSTEM_PREPARED" ] && [ ! -f "/tmp/.system_prepared" ]; then
     log_info "System not yet prepared, running preparation..."
     prepare_system_once
 else
@@ -43,11 +43,38 @@ log_info "Run started at: $(date)"
 # CONFIGURATION VARIABLES (from Terraform)
 # =================================================================
 readonly CLUSTER_NAME="${cluster_name}"
-readonly INSTALL_METRICS_SERVER="$${install_metrics_server:-true}"
-readonly INSTALL_EBS_CSI_DRIVER="$${install_ebs_csi_driver:-true}"
-readonly INSTALL_AWS_LOAD_BALANCER_CONTROLLER="$${install_aws_load_balancer_controller:-false}"
-readonly METRICS_SERVER_VERSION="$${metrics_server_version:-latest}"
-readonly EBS_CSI_DRIVER_VERSION="$${ebs_csi_driver_version:-v1.29.0}"
+
+# Set variables with fallbacks
+INSTALL_METRICS_SERVER="$${install_metrics_server}"
+if [ -z "$INSTALL_METRICS_SERVER" ]; then
+    INSTALL_METRICS_SERVER="true"
+fi
+readonly INSTALL_METRICS_SERVER
+
+INSTALL_EBS_CSI_DRIVER="$${install_ebs_csi_driver}"
+if [ -z "$INSTALL_EBS_CSI_DRIVER" ]; then
+    INSTALL_EBS_CSI_DRIVER="true"
+fi
+readonly INSTALL_EBS_CSI_DRIVER
+
+INSTALL_AWS_LOAD_BALANCER_CONTROLLER="$${install_aws_load_balancer_controller}"
+if [ -z "$INSTALL_AWS_LOAD_BALANCER_CONTROLLER" ]; then
+    INSTALL_AWS_LOAD_BALANCER_CONTROLLER="false"
+fi
+readonly INSTALL_AWS_LOAD_BALANCER_CONTROLLER
+
+METRICS_SERVER_VERSION="$${metrics_server_version}"
+if [ -z "$METRICS_SERVER_VERSION" ]; then
+    METRICS_SERVER_VERSION="latest"
+fi
+readonly METRICS_SERVER_VERSION
+
+EBS_CSI_DRIVER_VERSION="$${ebs_csi_driver_version}"
+if [ -z "$EBS_CSI_DRIVER_VERSION" ]; then
+    EBS_CSI_DRIVER_VERSION="v1.29.0"
+fi
+readonly EBS_CSI_DRIVER_VERSION
+
 readonly AWS_REGION="$${aws_region}"
 readonly KUBECONFIG_PATH="/etc/kubernetes/admin.conf"
 
@@ -78,7 +105,7 @@ verify_cluster_readiness() {
     
     while [ $attempt -lt $max_attempts ]; do
         if kubectl get nodes >/dev/null 2>&1; then
-            log_info "✓ API server is accessible"
+            log_info "✅ API server is accessible"
             break
         fi
         
@@ -101,7 +128,7 @@ verify_cluster_readiness() {
         done
         log_warn "Continuing with addon installation anyway..."
     else
-        log_info "✓ All nodes are ready"
+        log_info "✅ All nodes are ready"
     fi
     
     # Verify system pods are running
@@ -119,23 +146,23 @@ verify_cluster_readiness() {
 install_metrics_server() {
     log_info "=== Installing Metrics Server ==="
     
-    if [[ "$${INSTALL_METRICS_SERVER}" != "true" ]]; then
+    if [ "$${INSTALL_METRICS_SERVER}" != "true" ]; then
         log_info "Metrics server installation skipped (disabled in configuration)"
         return 0
     fi
     
     local metrics_url=""
-    if [[ "$${METRICS_SERVER_VERSION}" == "latest" ]]; then
+    if [ "$${METRICS_SERVER_VERSION}" = "latest" ]; then
         metrics_url="https://github.com/kubernetes-sigs/metrics-server/releases/latest/download/components.yaml"
     else
-        metrics_url="https://github.com/kubernetes-sigs/metrics-server/releases/download/$${METRICS_SERVER_VERSION}/components.yaml"
+        metrics_url="https://github.com/kubernetes-sigs/metrics-server/releases/download/$${$METRICS_SERVER_VERSION}/components.yaml"
     fi
     
     log_info "Downloading metrics-server manifests from: $${metrics_url}"
     
     local temp_file="/tmp/metrics-components.yaml"
     if curl -fsSL -o "$${temp_file}" "$${metrics_url}"; then
-        log_info "✓ Metrics server manifests downloaded"
+        log_info "✅ Metrics server manifests downloaded"
     else
         log_error "Failed to download metrics-server manifests"
         return 1
@@ -144,7 +171,7 @@ install_metrics_server() {
     # Apply manifests
     log_info "Applying metrics-server manifests..."
     if kubectl apply -f "$${temp_file}"; then
-        log_info "✓ Metrics server manifests applied"
+        log_info "✅ Metrics server manifests applied"
     else
         log_error "Failed to apply metrics-server manifests"
         return 1
@@ -153,7 +180,7 @@ install_metrics_server() {
     # Wait for metrics server to be ready
     log_info "Waiting for metrics-server deployment to be ready..."
     if kubectl rollout status deployment/metrics-server -n kube-system --timeout=300s; then
-        log_info "✓ Metrics server is ready"
+        log_info "✅ Metrics server is ready"
     else
         log_error "Metrics server failed to become ready"
         log_error "Deployment status:"
@@ -168,7 +195,7 @@ install_metrics_server() {
     local test_attempts=5
     for attempt in $(seq 1 $test_attempts); do
         if kubectl top nodes >/dev/null 2>&1; then
-            log_info "✓ Metrics server is functional"
+            log_info "✅ Metrics server is functional"
             break
         elif [ $attempt -eq $test_attempts ]; then
             log_warn "Metrics server may not be fully functional yet (this is normal)"
@@ -190,7 +217,7 @@ install_metrics_server() {
 install_ebs_csi_driver() {
     log_info "=== Installing AWS EBS CSI Driver ==="
     
-    if [[ "$${INSTALL_EBS_CSI_DRIVER}" != "true" ]]; then
+    if [ "$${INSTALL_EBS_CSI_DRIVER}" != "true" ]; then
         log_info "EBS CSI driver installation skipped (disabled in configuration)"
         return 0
     fi
@@ -208,8 +235,8 @@ install_ebs_csi_driver() {
     rm -rf "$${temp_dir}"
     
     log_info "Cloning EBS CSI driver repository (version: $${EBS_CSI_DRIVER_VERSION})..."
-    if git clone --depth 1 --branch "$${EBS_CSI_DRIVER_VERSION}" "$${repo_url}" "$${temp_dir}"; then
-        log_info "✓ EBS CSI driver repository cloned"
+    if git clone --depth 1 --branch "$${EBS_CSI_DRIVER_VERSION}" "$${repo_url}" "$#{temp_dir}"; then
+        log_info "✅ EBS CSI driver repository cloned"
     else
         log_error "Failed to clone EBS CSI driver repository"
         return 1
@@ -227,7 +254,7 @@ install_ebs_csi_driver() {
     
     log_info "Applying EBS CSI driver manifests using kustomize..."
     if kubectl apply -k "$${kustomize_path}"; then
-        log_info "✓ EBS CSI driver manifests applied"
+        log_info "✅ EBS CSI driver manifests applied"
     else
         log_error "Failed to apply EBS CSI driver manifests"
         return 1
@@ -238,14 +265,14 @@ install_ebs_csi_driver() {
     
     # Wait for daemonset
     if kubectl rollout status daemonset/ebs-csi-node -n kube-system --timeout=300s; then
-        log_info "✓ EBS CSI node daemonset is ready"
+        log_info "✅ EBS CSI node daemonset is ready"
     else
         log_warn "EBS CSI node daemonset may not be ready yet"
     fi
     
     # Wait for deployment
     if kubectl rollout status deployment/ebs-csi-controller -n kube-system --timeout=300s; then
-        log_info "✓ EBS CSI controller deployment is ready"
+        log_info "✅ EBS CSI controller deployment is ready"
     else
         log_warn "EBS CSI controller deployment may not be ready yet"
     fi
@@ -253,7 +280,7 @@ install_ebs_csi_driver() {
     # Verify storage class was created
     log_info "Checking for gp2 storage class..."
     if kubectl get storageclass gp2 >/dev/null 2>&1; then
-        log_info "✓ gp2 storage class is available"
+        log_info "✅ gp2 storage class is available"
     else
         log_warn "gp2 storage class not found, this may be normal depending on the driver version"
     fi
@@ -279,7 +306,7 @@ install_ebs_csi_driver() {
 install_aws_load_balancer_controller() {
     log_info "=== Installing AWS Load Balancer Controller ==="
     
-    if [[ "$${INSTALL_AWS_LOAD_BALANCER_CONTROLLER}" != "true" ]]; then
+    if [ "$${INSTALL_AWS_LOAD_BALANCER_CONTROLLER}" != "true" ]; then
         log_info "AWS Load Balancer Controller installation skipped (disabled in configuration)"
         return 0
     fi
@@ -303,30 +330,30 @@ validate_addons() {
     log_info "=== Validating Installed Addons ==="
     
     # Check metrics server
-    if [[ "$${INSTALL_METRICS_SERVER}" == "true" ]]; then
+    if [ "$${INSTALL_METRICS_SERVER}" = "true" ]; then
         log_info "Validating metrics server..."
         if kubectl get deployment metrics-server -n kube-system >/dev/null 2>&1; then
             local replicas_ready=""
             replicas_ready=$(kubectl get deployment metrics-server -n kube-system -o jsonpath='{.status.readyReplicas}' 2>/dev/null || echo "0")
-            log_info "✓ Metrics server deployment found ($replicas_ready replicas ready)"
+            log_info "✅ Metrics server deployment found ($replicas_ready replicas ready)"
         else
-            log_warn "✗ Metrics server deployment not found"
+            log_warn "❌ Metrics server deployment not found"
         fi
     fi
     
     # Check EBS CSI driver
-    if [[ "$${INSTALL_EBS_CSI_DRIVER}" == "true" ]]; then
+    if [ "$${INSTALL_EBS_CSI_DRIVER}" = "true" ]; then
         log_info "Validating EBS CSI driver..."
         if kubectl get deployment ebs-csi-controller -n kube-system >/dev/null 2>&1; then
-            log_info "✓ EBS CSI controller deployment found"
+            log_info "✅ EBS CSI controller deployment found"
         else
-            log_warn "✗ EBS CSI controller deployment not found"
+            log_warn "❌ EBS CSI controller deployment not found"
         fi
         
         if kubectl get daemonset ebs-csi-node -n kube-system >/dev/null 2>&1; then
-            log_info "✓ EBS CSI node daemonset found"
+            log_info "✅ EBS CSI node daemonset found"
         else
-            log_warn "✗ EBS CSI node daemonset not found"
+            log_warn "❌ EBS CSI node daemonset not found"
         fi
     fi
     
@@ -375,13 +402,27 @@ main() {
     log_info "=== Cluster Addons Installation Completed Successfully ==="
     
     # Summary
-    local installed_addons=()
-    [[ "$${INSTALL_METRICS_SERVER}" == "true" ]] && installed_addons+=("metrics-server")
-    [[ "$${INSTALL_EBS_CSI_DRIVER}" == "true" ]] && installed_addons+=("aws-ebs-csi-driver")
-    [[ "$${INSTALL_AWS_LOAD_BALANCER_CONTROLLER}" == "true" ]] && installed_addons+=("aws-load-balancer-controller")
+    local installed_addons=""
+    if [ "$${INSTALL_METRICS_SERVER}" = "true" ]; then
+        installed_addons="metrics-server"
+    fi
+    if [ "$${INSTALL_EBS_CSI_DRIVER}" = "true" ]; then
+        if [ -n "$installed_addons" ]; then
+            installed_addons="$installed_addons aws-ebs-csi-driver"
+        else
+            installed_addons="aws-ebs-csi-driver"
+        fi
+    fi
+    if [ "$${INSTALL_AWS_LOAD_BALANCER_CONTROLLER}" = "true" ]; then
+        if [ -n "$installed_addons" ]; then
+            installed_addons="$installed_addons aws-load-balancer-controller"
+        else
+            installed_addons="aws-load-balancer-controller"
+        fi
+    fi
     
-    log_info "✓ Installed addons: $${installed_addons[*]}"
-    log_info "✓ Cluster is ready for workloads"
+    log_info "✅ Installed addons: $installed_addons"
+    log_info "✅ Cluster is ready for workloads"
     
     return 0
 }

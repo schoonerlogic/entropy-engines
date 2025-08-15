@@ -136,6 +136,11 @@ locals {
       vars          = {}
       s3_key        = "scripts/controllers/001-ec2-metadata-lib.sh"
     }
+    "01-install-user-and-tooling" = {
+      template_path = "${local.script_base_path}/shared/01-install-user-and-tooling.sh.tftpl"
+      vars          = local.shared_template_vars
+      s3_key        = "scripts/controllers/01-install-user-and-tooling.sh"
+    }
     "entrypoint" = {
       template_path = "${local.script_base_path}/shared/entrypoint.sh.tftpl"
       vars          = local.entrypoint_vars

@@ -1,0 +1,416 @@
+# Terraform Template Escaping Fix Guide
+
+## 🚨 CRITICAL - VALIDATION ERROR PATTERNS (HIGH PRIORITY)
+
+**These patterns ALWAYS cause Terraform validation errors. Check for these FIRST:**
+
+### ❌ NEVER USE - Causes "Extra characters after interpolation expression"
+```bash
+# Parameter expansion (any colon syntax):
+"${VAR:-default}"           # ❌ FORBIDDEN
+"${VAR:=default}"           # ❌ FORBIDDEN  
+"${VAR:+alternate}"         # ❌ FORBIDDEN
+"${VAR?error_msg}"          # ❌ FORBIDDEN
+if [ -z "${VAR:-}" ]; then  # ❌ FORBIDDEN
+
+# Complex bash constructs:
+: "${DEBUG:=0}"             # ❌ FORBIDDEN (too fancy)
+[[ condition ]]             # ❌ FORBIDDEN (use [ ] instead)
+```
+
+### ❌ NEVER USE - Causes "Invalid multi-line string"
+```bash
+# Multi-line brace expansion:
+{                           # ❌ FORBIDDEN
+    echo "line1"
+    echo "line2" 
+} > file
+
+# Complex regex with bash-specific features:
+if [[ "$ip" =~ $regex ]]; then      # ❌ FORBIDDEN
+
+# Bash-specific array handling:
+IFS='.' read -ra octets <<< "$ip"   # ❌ FORBIDDEN
+for octet in "${octets[@]}"; do     # ❌ FORBIDDEN
+
+# Use simple alternatives instead:
+cat > file << 'EOF'         # ✅ SAFE - Heredoc
+line1
+line2
+EOF
+
+echo "$ip" | grep -qE "$regex"      # ✅ SAFE - grep instead of regex match
+echo "$ip" | cut -d'.' -f1          # ✅ SAFE - cut instead of array
+```
+
+### ✅ ALWAYS USE - Safe replacements
+```bash
+# Replace parameter expansion with explicit conditionals:
+if [ -z "$VAR" ] 2>/dev/null; then
+    VAR="default"
+fi
+
+# Simple variable assignment:
+DEBUG=0                     # ✅ SAFE
+
+# POSIX test syntax:
+[ condition ]               # ✅ SAFE
+```
+
+### 🔍 SPECIAL CASES - Bash built-ins (NO escaping)
+```bash
+# String length (bash built-in):
+${#variable}                # ✅ CORRECT (no escaping)
+${#variable}               # ❌ WRONG (creates template lookup)
+
+# Array syntax (bash built-in):  
+${array[@]}                 # ✅ CORRECT (no escaping)
+${array[@]}                # ❌ WRONG (creates template lookup)
+```
+
+## 🔄 REPEATED MISTAKE PATTERNS (Learn From These!)
+
+**These are the exact patterns we keep making mistakes on:**
+
+### Mistake #1: Parameter Expansion (Most Common)
+```bash
+# ❌ KEEPS FAILING - We keep using this:
+if [ -z "${SYSTEM_PREPARED:-}" ]; then
+local LOG_LEVEL="${LOG_LEVEL:-INFO}"  
+: "${DEBUG:=0}"
+
+# ✅ CORRECT PATTERN - Use this instead:
+if [ -z "$SYSTEM_PREPARED" ] 2>/dev/null; then
+if [ -z "$LOG_LEVEL" ]; then LOG_LEVEL="INFO"; fi
+DEBUG=0
+```
+
+### Mistake #2: Wrong Escaping Context
+```bash
+# ❌ KEEPS FAILING - Wrong escaping for commands:
+if bash "${script_path}"; then           # Creates: if bash "${script_path}";
+echo "Dir: ${SCRIPT_DIR}"                # Creates: echo "Dir: ${SCRIPT_DIR}"
+
+# ✅ CORRECT PATTERN - Commands need no escaping:
+if bash "$script_path"; then              # ✅
+echo "Dir: $SCRIPT_DIR"                   # ✅ (SCRIPT_DIR is bash variable here)
+```
+
+### Mistake #3: Bash Built-ins With Wrong Escaping  
+```bash
+# ❌ KEEPS FAILING - Over-escaping bash built-ins:
+[ "${#token}" -lt 10 ]                   # Terraform looks for ${#token} template var
+"${array[@]}"                            # Terraform looks for ${array[@]} template var
+
+# ✅ CORRECT PATTERN - Bash built-ins need NO escaping:
+[ ${#token} -lt 10 ]                      # ✅ Bash string length
+"${array[@]}"                             # ✅ Bash array expansion
+```
+
+### Mistake #4: Multi-line Brace Expansions
+```bash
+# ❌ KEEPS FAILING - Terraform can't parse multi-line braces:
+{
+    echo "AWS_INSTANCE_ID=$AWS_INSTANCE_ID"
+    echo "AWS_REGION=$AWS_REGION"
+} > "$CACHE_FILE"
+
+# ✅ CORRECT PATTERN - Use heredocs:
+cat > "$CACHE_FILE" << 'EOF'
+AWS_INSTANCE_ID=$AWS_INSTANCE_ID
+AWS_REGION=$AWS_REGION
+EOF
+```
+
+### Mistake #5: Complex Bash-Specific Constructs  
+```bash
+# ❌ KEEPS FAILING - Terraform can't parse complex bash features:
+if [[ "$ip" =~ $regex ]]; then           # Bash regex matching
+IFS='.' read -ra octets <<< "$ip"         # Bash array splitting
+for octet in "${octets[@]}"; do           # Bash array iteration
+
+# ✅ CORRECT PATTERN - Use simple POSIX tools:
+if echo "$ip" | grep -qE "$regex"; then  # grep instead of regex
+first_octet=$(echo "$ip" | cut -d'.' -f1) # cut instead of arrays
+```
+
+### Mistake #6: Complex Bash Constructs
+```bash
+# ❌ KEEPS FAILING - Terraform can't parse these:
+[[ "$result" != "null" && -n "$result" ]]
+: "${VAR:=default}"
+
+# ✅ CORRECT PATTERN - Use simple POSIX syntax:
+[ "$result" != "null" ] && [ -n "$result" ]
+VAR="default"
+```
+
+---
+
+## 🚨 VALIDATION CHECKLIST (Run Before Every Commit)
+
+**Before running `terraform validate`, scan ALL `.tftpl` files for these patterns:**
+
+### Step 1: Search for FORBIDDEN patterns
+```bash
+# Search for parameter expansion (the #1 cause of validation errors):
+grep -n '\${.*:-' *.tftpl     # Should return NOTHING
+grep -n '\${.*:=' *.tftpl     # Should return NOTHING  
+grep -n '\${.*:+' *.tftpl     # Should return NOTHING
+grep -n '\${.*\?' *.tftpl     # Should return NOTHING
+
+# Search for double-bracket tests:
+grep -n '\[\[' *.tftpl        # Should return NOTHING (use [ ] instead)
+
+# Search for fancy assignments:
+grep -n ': "\${' *.tftpl      # Should return NOTHING
+
+# Search for multi-line brace expansions:
+grep -A 5 '^[[:space:]]*{[[:space:]]*
+
+### Step 2: Verify escaping patterns
+```bash
+# These should have ${} (string context):
+script_path="${SCRIPT_DIR}/$script"     # ✅
+log_file="${LOG_DIR}/app.log"          # ✅
+
+# These should have $ only (command context):
+if bash "$script_path"; then            # ✅
+if [ -f "$config_file" ]; then         # ✅
+echo "Value: $SCRIPT_DIR"               # ✅
+
+# These should have no escaping (bash built-ins):
+${#variable}                            # ✅
+${array[@]}                             # ✅
+```
+
+### Step 3: Common fixes
+```bash
+# ❌ WRONG → ✅ RIGHT
+"${LOG_LEVEL:-INFO}"     →  if [ -z "$LOG_LEVEL" ]; then LOG_LEVEL="INFO"; fi
+[[ condition ]]          →  [ condition ]  
+: "${DEBUG:=0}"          →  DEBUG=0
+${#token}               →  ${#token}
+${array[@]}             →  ${array[@]}
+```
+
+---
+
+## Problem Summary
+This Terraform environment has **partial `$$` escaping behavior** in `templatefile()` function:
+- ✅ **`$${variable}` works** → renders as `${variable}`
+- ❌ **`$$variable` is broken** → stays as `$$variable` (causes bash syntax errors)
+- ❌ **`$(command)` is broken** → stays as `$(command)` (causes bash syntax errors)
+- ❌ **`$((math))` is broken** → stays as `$((math))` (causes bash syntax errors)
+- ❌ **`${VAR:-default}` is broken** → Terraform tries to parse as template expression (validation error)
+- ⚠️ **CRITICAL: Context matters for escaping** → `${VAR}` works for strings, `$VAR` needed for commands
+
+## ⚠️ CRITICAL DISCOVERY: Context-Sensitive Escaping
+
+This environment has **context-sensitive escaping behavior** that differs dramatically from standard Terraform:
+
+### String Context (use `${VAR}`):
+```bash
+# Template:                    # Renders to:
+script_path="${DIR}/$file"   → script_path="${DIR}/$file"    # ✅ CORRECT
+```
+
+### Command Context (use `$VAR` - NO escaping):
+```bash
+# Template:                    # Renders to:  
+if bash "$script_path"; then  → if bash "$script_path"; then  # ✅ CORRECT
+
+# WRONG:
+if bash "${script_path}"; then → if bash "${script_path}"; then # ❌ BROKEN BASH SYNTAX
+```
+
+**This means you CANNOT use the same escaping pattern everywhere!**
+
+## New Discovery: Bash Parameter Expansion Issues
+
+### Problem: Template Validation Errors
+When using bash parameter expansion syntax like `${VAR:-default}`, Terraform attempts to interpret this as a Terraform template expression, causing validation errors:
+
+```
+Call to function "templatefile" failed:
+Invalid character; This character is not used within the language.
+Extra characters after interpolation expression; Template interpolation doesn't expect a colon at this location.
+```
+
+### CRITICAL: Variable Reference Context Matters
+
+**String concatenation context** (use `${VAR}`):
+```bash
+# Template: 
+script_path="${SCRIPT_DIR}/$script"
+# Renders to:
+script_path="${SCRIPT_DIR}/$script"  # ✅ CORRECT
+```
+
+**Command/conditional context** (use `$VAR` - no escaping):
+```bash
+# Template:
+if [ -f "$script_path" ]; then
+if bash "$script_path"; then
+# Renders to:
+if [ -f "$script_path" ]; then      # ✅ CORRECT  
+if bash "$script_path"; then        # ✅ CORRECT
+
+# WRONG - causes bash syntax errors:
+if [ -f "${script_path}" ]; then    # ❌ BROKEN - renders from ${script_path}
+if bash "${script_path}" ]; then    # ❌ BROKEN - renders from ${script_path}
+```
+
+### Solutions for Parameter Expansion
+
+#### ❌ BROKEN - Causes Terraform validation error:
+```bash
+local LOG_LEVEL="${LOG_LEVEL:-INFO}"
+local DEBUG_MODE="${DEBUG:-0}"
+if [ -z "${SYSTEM_PREPARED:-}" ]; then
+export SCRIPT_EXECUTION_MODE="${SCRIPT_EXECUTION_MODE:-normal}"
+```
+
+#### ✅ WORKING - Use explicit conditionals:
+```bash
+# Method 1: Explicit if statement
+if [ -z "$LOG_LEVEL" ]; then
+    LOG_LEVEL="INFO"
+fi
+
+# Method 2: For environment variables
+if [ -z "$SCRIPT_EXECUTION_MODE" ]; then
+    export SCRIPT_EXECUTION_MODE="normal"
+fi
+
+# Method 3: Test first, assign later
+if [ -z "$DEBUG" ]; then
+    DEBUG_MODE="0"
+else
+    DEBUG_MODE="$DEBUG"
+fi
+``` *.tftpl | grep 'echo\|printf'  # Should return NOTHING
+```
+
+### Step 2: Verify escaping patterns
+```bash
+# These should have ${} (string context):
+script_path="${SCRIPT_DIR}/$script"     # ✅
+log_file="${LOG_DIR}/app.log"          # ✅
+
+# These should have $ only (command context):
+if bash "$script_path"; then            # ✅
+if [ -f "$config_file" ]; then         # ✅
+echo "Value: $SCRIPT_DIR"               # ✅
+
+# These should have no escaping (bash built-ins):
+${#variable}                            # ✅
+${array[@]}                             # ✅
+```
+
+### Step 3: Common fixes
+```bash
+# ❌ WRONG → ✅ RIGHT
+"${LOG_LEVEL:-INFO}"     →  if [ -z "$LOG_LEVEL" ]; then LOG_LEVEL="INFO"; fi
+[[ condition ]]          →  [ condition ]  
+: "${DEBUG:=0}"          →  DEBUG=0
+${#token}               →  ${#token}
+${array[@]}             →  ${array[@]}
+```
+
+---
+
+## Problem Summary
+This Terraform environment has **partial `$$` escaping behavior** in `templatefile()` function:
+- ✅ **`$${variable}` works** → renders as `${variable}`
+- ❌ **`$$variable` is broken** → stays as `$$variable` (causes bash syntax errors)
+- ❌ **`$(command)` is broken** → stays as `$(command)` (causes bash syntax errors)
+- ❌ **`$((math))` is broken** → stays as `$((math))` (causes bash syntax errors)
+- ❌ **`${VAR:-default}` is broken** → Terraform tries to parse as template expression (validation error)
+- ⚠️ **CRITICAL: Context matters for escaping** → `${VAR}` works for strings, `$VAR` needed for commands
+
+## ⚠️ CRITICAL DISCOVERY: Context-Sensitive Escaping
+
+This environment has **context-sensitive escaping behavior** that differs dramatically from standard Terraform:
+
+### String Context (use `${VAR}`):
+```bash
+# Template:                    # Renders to:
+script_path="${DIR}/$file"   → script_path="${DIR}/$file"    # ✅ CORRECT
+```
+
+### Command Context (use `$VAR` - NO escaping):
+```bash
+# Template:                    # Renders to:  
+if bash "$script_path"; then  → if bash "$script_path"; then  # ✅ CORRECT
+
+# WRONG:
+if bash "${script_path}"; then → if bash "${script_path}"; then # ❌ BROKEN BASH SYNTAX
+```
+
+**This means you CANNOT use the same escaping pattern everywhere!**
+
+## New Discovery: Bash Parameter Expansion Issues
+
+### Problem: Template Validation Errors
+When using bash parameter expansion syntax like `${VAR:-default}`, Terraform attempts to interpret this as a Terraform template expression, causing validation errors:
+
+```
+Call to function "templatefile" failed:
+Invalid character; This character is not used within the language.
+Extra characters after interpolation expression; Template interpolation doesn't expect a colon at this location.
+```
+
+### CRITICAL: Variable Reference Context Matters
+
+**String concatenation context** (use `${VAR}`):
+```bash
+# Template: 
+script_path="${SCRIPT_DIR}/$script"
+# Renders to:
+script_path="${SCRIPT_DIR}/$script"  # ✅ CORRECT
+```
+
+**Command/conditional context** (use `$VAR` - no escaping):
+```bash
+# Template:
+if [ -f "$script_path" ]; then
+if bash "$script_path"; then
+# Renders to:
+if [ -f "$script_path" ]; then      # ✅ CORRECT  
+if bash "$script_path"; then        # ✅ CORRECT
+
+# WRONG - causes bash syntax errors:
+if [ -f "${script_path}" ]; then    # ❌ BROKEN - renders from ${script_path}
+if bash "${script_path}" ]; then    # ❌ BROKEN - renders from ${script_path}
+```
+
+### Solutions for Parameter Expansion
+
+#### ❌ BROKEN - Causes Terraform validation error:
+```bash
+local LOG_LEVEL="${LOG_LEVEL:-INFO}"
+local DEBUG_MODE="${DEBUG:-0}"
+if [ -z "${SYSTEM_PREPARED:-}" ]; then
+export SCRIPT_EXECUTION_MODE="${SCRIPT_EXECUTION_MODE:-normal}"
+```
+
+#### ✅ WORKING - Use explicit conditionals:
+```bash
+# Method 1: Explicit if statement
+if [ -z "$LOG_LEVEL" ]; then
+    LOG_LEVEL="INFO"
+fi
+
+# Method 2: For environment variables
+if [ -z "$SCRIPT_EXECUTION_MODE" ]; then
+    export SCRIPT_EXECUTION_MODE="normal"
+fi
+
+# Method 3: Test first, assign later
+if [ -z "$DEBUG" ]; then
+    DEBUG_MODE="0"
+else
+    DEBUG_MODE="$DEBUG"
+fi
+```

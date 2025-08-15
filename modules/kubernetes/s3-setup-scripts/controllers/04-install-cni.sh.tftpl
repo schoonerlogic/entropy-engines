@@ -6,7 +6,7 @@
 # =================================================================
 # SHARED FUNCTIONS INTEGRATION
 # =================================================================
-SCRIPT_DIR=${script_dir}
+SCRIPT_DIR="${script_dir}"
 
 # load shared functions
 if [ -f "$${SCRIPT_DIR}/00-shared-functions.sh" ]; then
@@ -24,11 +24,11 @@ else
     exit 1
 fi
 
-setup_logging
+setup_logging "install-cni"
 
 log_info "Starting K8s setup with log level: $${LOG_LEVEL}"
 
-if [ -z "$${SYSTEM_PREPARED:-}" ] && [ ! -f "/tmp/.system_prepared" ]; then
+if [ -z "$SYSTEM_PREPARED" ] && [ ! -f "/tmp/.system_prepared" ]; then
     log_info "System not yet prepared, running preparation..."
     prepare_system_once
 else
@@ -41,8 +41,20 @@ fi
 # CONFIGURATION VARIABLES (from Terraform)
 # =================================================================
 readonly TARGET_K8S_USER="${k8s_user}"
-readonly CNI_PLUGIN="$${cni_plugin:-calico}"
-readonly CNI_VERSION="$${cni_version:-v3.27.0}"
+# Set CNI plugin with fallback
+CNI_PLUGIN="$${cni_plugin}"
+if [ -z "$CNI_PLUGIN" ]; then
+    CNI_PLUGIN="calico"
+fi
+readonly CNI_PLUGIN
+
+# Set CNI version with fallback  
+CNI_VERSION="$${cni_version}"
+if [ -z "$CNI_VERSION" ]; then
+    CNI_VERSION="v3.27.0"
+fi
+readonly CNI_VERSION
+
 readonly KUBECONFIG_PATH="/etc/kubernetes/admin.conf"
 readonly COMPLETION_SIGNAL_FILE="/tmp/terraform_bootstrap_complete"
 
@@ -73,7 +85,7 @@ verify_cluster_accessibility() {
     
     while [ $attempt -lt $max_attempts ]; do
         if kubectl cluster-info >/dev/null 2>&1; then
-            log_info "✓ Cluster is accessible"
+            log_info "✅ Cluster is accessible"
             
             # Show cluster info for logging
             log_info "Cluster information:"
@@ -111,7 +123,7 @@ install_calico_cni() {
         log_info "Applying Calico manifests (attempt $attempt/$max_attempts)..."
         
         if kubectl apply -f "$${calico_url}"; then
-            log_info "✓ Calico manifests applied successfully"
+            log_info "✅ Calico manifests applied successfully"
             break
         elif [ $attempt -eq $max_attempts ]; then
             log_error "Failed to apply Calico manifests after $max_attempts attempts"
@@ -159,7 +171,7 @@ wait_for_calico_pods() {
         
         # Check if we have at least one of each type running
         if [ "$calico_nodes_ready" -gt 0 ] && [ "$calico_controllers_ready" -gt 0 ]; then
-            log_info "✓ Calico pods are ready"
+            log_info "✅ Calico pods are ready"
             break
         fi
         
@@ -186,7 +198,7 @@ install_flannel_cni() {
     log_info "Applying Flannel manifests from: $${flannel_url}"
     
     if kubectl apply -f "$${flannel_url}"; then
-        log_info "✓ Flannel manifests applied successfully"
+        log_info "✅ Flannel manifests applied successfully"
         
         # Wait for flannel pods
         log_info "Waiting for Flannel pods to be ready..."
@@ -195,7 +207,7 @@ install_flannel_cni() {
             return 1
         }
         
-        log_info "✓ Flannel is ready"
+        log_info "✅ Flannel is ready"
     else
         log_error "Failed to apply Flannel manifests"
         return 1
@@ -231,7 +243,7 @@ wait_for_nodes_ready() {
     
     log_info "Waiting for all nodes to be ready..."
     if kubectl wait --for=condition=Ready nodes --all --timeout=300s; then
-        log_info "✓ All nodes are ready"
+        log_info "✅ All nodes are ready"
         
         # Show final node status
         log_info "Final node status:"
@@ -257,12 +269,12 @@ setup_user_kubectl_config() {
     log_info "Configuring kubectl for user: $${TARGET_K8S_USER}"
     
     # Verify user exists
-    if ! id "$${TARGET_K8S_USER}" >/dev/null 2>&1; then
+    if ! id "$${TARGET_K8S_USER}" &>/dev/null; then
         log_warn "User $${TARGET_K8S_USER} does not exist, skipping kubectl setup"
         return 0
     fi
     
-    log_info "✓ User $${TARGET_K8S_USER} exists"
+    log_info "✅ User $${TARGET_K8S_USER} exists"
     
     # Get user information
     local target_uid=""
@@ -300,14 +312,14 @@ setup_user_kubectl_config() {
     
     # Set proper permissions
     chmod 700 "$${kube_dir}"
-    chmod 600 "$4{kube_config}"
+    chmod 600 "$${kube_config}"
     
-    log_info "✓ kubectl configured successfully for user $${TARGET_K8S_USER}"
+    log_info "✅ kubectl configured successfully for user $${TARGET_K8S_USER}"
     
     # Test the configuration as the user
     log_info "Testing kubectl access for user $${TARGET_K8S_USER}..."
     if sudo -u "$${TARGET_K8S_USER}" kubectl get nodes >/dev/null 2>&1; then
-        log_info "✓ User can successfully access cluster with kubectl"
+        log_info "✅ User can successfully access cluster with kubectl"
     else
         log_warn "User may not be able to access cluster (this could be normal if CNI is still starting)"
     fi
@@ -335,7 +347,7 @@ create_completion_signal() {
 # Cluster Status: Ready
 EOF
     
-    log_info "✓ Completion signal created: $${COMPLETION_SIGNAL_FILE}"
+    log_info "✅ Completion signal created: $${COMPLETION_SIGNAL_FILE}"
 }
 
 perform_final_verification() {
@@ -368,7 +380,7 @@ perform_final_verification() {
         log_info "  $line"
     done || log_warn "Component status check not available"
     
-    log_info "✓ Final verification completed"
+    log_info "✅ Final verification completed"
 }
 
 # =================================================================
@@ -408,11 +420,11 @@ main() {
     perform_final_verification
     
     log_info "=== CNI Installation and Cluster Finalization Completed Successfully ==="
-    log_info "✓ CNI Plugin ($${CNI_PLUGIN}) installed and ready"
-    log_info "✓ All nodes are ready"
-    log_info "✓ kubectl configured for user: $${TARGET_K8S_USER}"
-    log_info "✓ Completion signal created: $${COMPLETION_SIGNAL_FILE}"
-    log_info "✓ Cluster is fully operational"
+    log_info "✅ CNI Plugin ($${CNI_PLUGIN}) installed and ready"
+    log_info "✅ All nodes are ready"
+    log_info "✅ kubectl configured for user: $${TARGET_K8S_USER}"
+    log_info "✅ Completion signal created: $${COMPLETION_SIGNAL_FILE}"
+    log_info "✅ Cluster is fully operational"
     
     return 0
 }

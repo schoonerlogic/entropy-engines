@@ -1,13 +1,8 @@
-#!/bin/bash
-# /tmp/k8s_scripts/k8s-setup-main.sh
-# Main wrapper script that orchestrates all K8s setup scripts
-
-echo "=== Kubernetes Setup Started at $(date) ==="
-
+#!/usr/bin/env bash
 # =================================================================
 # SHARED FUNCTIONS INTEGRATION
 # =================================================================
-SCRIPT_DIR=${script_dir}
+SCRIPT_DIR="${script_dir}"
 
 # load shared functions
 if [ -f "$${SCRIPT_DIR}/00-shared-functions.sh" ]; then
@@ -25,11 +20,11 @@ else
     exit 1
 fi
 
-setup_logging
+setup_logging "install-cluster-addons"
 
 log_info "Starting K8s setup with log level: $${LOG_LEVEL}"
 
-if [ -z "$${SYSTEM_PREPARED:-}" ] && [ ! -f "/tmp/.system_prepared" ]; then
+if [ -z "$SYSTEM_PREPARED" ] && [ ! -f "/tmp/.system_prepared" ]; then
     log_info "System not yet prepared, running preparation..."
     prepare_system_once
 else
@@ -37,33 +32,59 @@ else
 fi
 
 
-# Define the scripts to run in order
-SCRIPTS=(
-    "01-install-user-and-tooling.sh"
-    "02-install-kubernetes.sh" 
-    "03-configure-cluster.sh"
-    "04-install-cni.sh"
-    "05-install-cluster-addons.sh"
-)
+log_info "=== Terraform Remote-Exec Bootstrap ==="
+log_info "Run started at: $(date)"
 
-# Execute scripts in sequence
+log_info "--- Running Apply Cluster Addons Script ---"
+# Define wait parameters
+WAIT_TIMEOUT=300 # 5 minutes timeout
+WAIT_INTERVAL=10 # Check every 10 seconds
 
-for script in "$${SCRIPTS[@]}"; do
-    script_path="$${SCRIPT_DIR}/$script"
-    
-    if [ -f "$${script_path}" ]; then
-        log_info "Starting script: $script"
-        
-        if bash "$${script_path}"; then
-            log_info "Script completed successfully: $script"
-        else
-            log_error "Script failed: $script"
-            exit 1
-        fi
-    else
-        log_warn "Script not found, skipping: $script_path"
-    fi
+# Wait for API server again just to be sure before applying
+log_info "Verifying API server readiness..."
+ELAPSED=0
+
+until sudo kubectl --kubeconfig=/etc/kubernetes/admin.conf get nodes > /dev/null 2>&1; do
+  if [ "$ELAPSED" -ge "$WAIT_TIMEOUT" ]; then log_info "FATAL: Timeout waiting for API server before applying addons."; exit 1; fi
+  sleep "$WAIT_INTERVAL"
+  ELAPSED=$((ELAPSED + WAIT_INTERVAL))
+  log_info "Waiting for API server ($${ELAPSED}s / $${WAIT_TIMEOUT}s)..."
 done
+log_info "API server ready. Applying addons..."
 
-log_info "=== Kubernetes Setup Completed Successfully at $(date) ==="
-echo "Setup completed. Check $${MAIN_LOG_FILE} for full details."
+# Install metrics server
+log_info "Installing metrics server..."
+METRICS_URL="https://github.com/kubernetes-sigs/metrics-server/releases/latest/download/components.yaml"
+curl -fsSL -o /tmp/metrics-components.yaml "$${METRICS_URL}" || { log_info "FATAL: Failed to download metrics-server manifests"; exit 1; }
+# Optional patch if needed: sudo sed -i '/args:/a \        - --kubelet-insecure-tls' /tmp/metrics-components.yaml
+sudo kubectl --kubeconfig=/etc/kubernetes/admin.conf apply -f /tmp/metrics-components.yaml || { log_info "FATAL: Failed to apply metrics-server manifests"; exit 1; }
+log_info "Applied metrics-server manifests."
+
+# Install AWS EBS CSI driver
+# log_info "Installing AWS EBS CSI driver..."
+# # Ensure kustomize is installed via user_data
+# EBS_CSI_URL="https://github.com/kubernetes-sigs/aws-ebs-csi-driver/deploy/kubernetes/overlays/stable/?ref=master"
+# sudo kubectl --kubeconfig=/etc/kubernetes/admin.conf apply -k "$EBS_CSI_URL" || { log_info "FATAL: Failed to apply AWS EBS CSI driver using kustomize"; exit 1; }
+# log_info "Applied AWS EBS CSI driver manifests."
+#
+
+log_info "Installing AWS EBS CSI driver..."
+EBS_CSI_TAG="v1.29.0" # <-- Use specific stable tag
+EBS_CSI_REPO="https://github.com/kubernetes-sigs/aws-ebs-csi-driver.git"
+TMP_DIR="/tmp/aws-ebs-csi-driver"
+
+# Clone the specific tag
+rm -rf "$${TMP_DIR}" # Clean up previous attempt if any
+git clone --depth 1 --branch "$${EBS_CSI_TAG}" "$${EBS_CSI_REPO}" "$${TMP_DIR}" || { log_info "FATAL: Failed to clone AWS EBS CSI driver repo"; exit 1; }
+
+# Apply using the local Kustomize overlay path
+KUSTOMIZE_PATH="$${TMP_DIR}/deploy/kubernetes/overlays/stable"
+sudo kubectl --kubeconfig=/etc/kubernetes/admin.conf apply -k "$${KUSTOMIZE_PATH}" || { log_info "FATAL: Failed to apply AWS EBS CSI driver using kustomize from local clone"; exit 1; }
+
+# Clean up
+rm -rf "$${TMP_DIR}"
+
+log_info "Applied AWS EBS CSI driver manifests."
+
+
+log_info "--- Apply Cluster Addons Script Finished ---"

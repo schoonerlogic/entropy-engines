@@ -2,7 +2,7 @@
 # =================================================================
 # SHARED FUNCTIONS INTEGRATION
 # =================================================================
-SCRIPT_DIR=${script_dir}
+SCRIPT_DIR="${script_dir}"
 
 # load shared functions
 if [ -f "$${SCRIPT_DIR}/00-shared-functions.sh" ]; then
@@ -20,11 +20,11 @@ else
     exit 1
 fi
 
-setup_logging
+setup_logging "install-cluster-addons"
 
 log_info "Starting K8s setup with log level: $${LOG_LEVEL}"
 
-if [ -z "$${SYSTEM_PREPARED:-}" ] && [ ! -f "/tmp/.system_prepared" ]; then
+if [ -z "$SYSTEM_PREPARED" ] && [ ! -f "/tmp/.system_prepared" ]; then
     log_info "System not yet prepared, running preparation..."
     prepare_system_once
 else
@@ -48,7 +48,7 @@ until sudo kubectl --kubeconfig=/etc/kubernetes/admin.conf get nodes > /dev/null
   if [ "$ELAPSED" -ge "$WAIT_TIMEOUT" ]; then log_info "FATAL: Timeout waiting for API server before applying addons."; exit 1; fi
   sleep "$WAIT_INTERVAL"
   ELAPSED=$((ELAPSED + WAIT_INTERVAL))
-  log_info "Waiting for API server (${ELAPSED}s / ${WAIT_TIMEOUT}s)..."
+  log_info "Waiting for API server ($${ELAPSED}s / $${WAIT_TIMEOUT}s)..."
 done
 log_info "API server ready. Applying addons..."
 

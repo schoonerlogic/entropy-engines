@@ -8,153 +8,195 @@ export DEBIAN_FRONTEND=noninteractive
 # Global variables
 SYSTEM_PREPARED=false
 
+# Set default for DEBUG to avoid unbound variable errors
+DEBUG=0
+
 # =================================================================
 # ENHANCED LOGGING SETUP WITH VERBOSITY CONTROL
 # =================================================================
 
 setup_logging() {
-    # Configuration from environment or defaults
-    local LOG_DIR=${log_dir}
-    local LOG_LEVEL=${log_level}
-    local LOG_LEVEL="$${LOG_LEVEL:-INFO}"
-    local DEBUG_MODE="$${DEBUG:-0}"
+    # Configuration from environment or defaults - these are Terraform interpolated
+    local LOG_DIR="${log_dir}"
+    local LOG_LEVEL="${log_level}"
+    # Set default if not provided by Terraform
+    if [ -z "$LOG_LEVEL" ]; then
+        LOG_LEVEL="INFO"
+    fi
+    local DEBUG_MODE="0"
+    if [ -n "$DEBUG" ] 2>/dev/null; then
+        DEBUG_MODE="$DEBUG"
+    fi
+    
+    echo "Template variables received:"
+    echo "LOG_DIR from Terraform: $LOG_DIR"
+    echo "LOG_LEVEL from Terraform: $LOG_LEVEL"
     
     # Create log directory
-    mkdir -p "$${LOG_DIR}"
-    chown "$(whoami):$(whoami)" "$${LOG_DIR}" 2>/dev/null || true
+    if ! mkdir -p "$LOG_DIR"; then
+        echo "ERROR: Cannot create log directory: $LOG_DIR" >&2
+        return 1
+    fi
+    chown "$(whoami):$(whoami)" "$LOG_DIR" 2>/dev/null || true
     
     # Auto-detect calling script name or use parameter
     local script_name
-    if [[ -n "$${1:-}" ]]; then
+    if [ -n "$1" ] 2>/dev/null; then
         script_name="$1"
+        echo "Using provided script name: $script_name"
     else
-        script_name="$(basename "$${BASH_SOURCE[1]}" .sh)"
+        # More robust detection - walk up BASH_SOURCE until we find non-shared-functions
+        local found_caller=""
+        for i in 1 2 3 4; do
+            if [ -n "$${BASH_SOURCE[$$i]}" ] 2>/dev/null; then
+                local candidate=""
+                if [ -n "$${BASH_SOURCE[`$i]}" ]; then
+                    candidate=$(basename "$${BASH_SOURCE[$i]}")
+                    # Remove .sh and .tftpl extensions
+                    candidate="$${candidate%.sh}"
+                    candidate="$${candidate%.tftpl}"
+                fi
+                # Skip shared functions
+                if [ "$candidate" != "00-shared-functions" ] && [ "$candidate" != "shared-functions" ]; then
+                    found_caller="$candidate"
+                    echo "Found caller at BASH_SOURCE[$i]: $found_caller"
+                    break
+                fi
+            fi
+        done
+        
+        if [ -n "$found_caller" ]; then
+            script_name="$found_caller"
+        else
+            script_name="unknown-script"
+        fi
+        echo "Auto-detected script name: $script_name"
     fi
     
-    # Setup log file paths
-    full_log_path="$${LOG_DIR}/$${script_name}.log"
-    error_log_path="$${LOG_DIR}/$${script_name}-error.log"
-    debug_log_path="$${LOG_DIR}/$${script_name}-debug.log"
-    trace_log_path="$${LOG_DIR}/$${script_name}-trace.log"
+    echo "Final script_name: $script_name"
     
-    # Configure bash behavior and logging based on log level
-    case "$${LOG_LEVEL}" in
-        ERROR)
-            # Only errors, no info output
-            set -euo pipefail
-            exec 1>/dev/null
-            exec 2> >(tee -a "$${error_log_path}")
-            ;;
-        WARN)
-            # Warnings and errors only
-            set -euo pipefail
-            exec 1> >(tee -a "$${full_log_path}")
-            exec 2> >(tee -a "$${error_log_path}" >&2)
-            ;;
-        INFO)
-            # Normal logging (your current behavior minus the -x)
-            set -euo pipefail
-            exec 1> >(tee -a "$${full_log_path}")
-            exec 2> >(tee -a "$${error_log_path}" >&2)
-            ;;
-        DEBUG)
-            # Include debug messages, no bash tracing
-            set -euo pipefail
-            export DEBUG=1
-            exec 1> >(tee -a "$${full_log_path}")
-            exec 2> >(tee -a "$${error_log_path}" >&2)
-            ;;
-        TRACE)
-            # Full bash tracing (your current set -euxo pipefail behavior)
-            set -euo pipefail
-            export DEBUG=1
-            # Send trace output to separate file to keep main log clean
-            exec 19> "$${trace_log_path}"
-            BASH_XTRACEFD=19
-            set -x
-            exec 1> >(tee -a "$${full_log_path}")
-            exec 2> >(tee -a "$${error_log_path}" >&2)
-            ;;
-        *)
-            # Default to INFO for unknown levels
-            set -euo pipefail
-            exec 1> >(tee -a "$${full_log_path}")
-            exec 2> >(tee -a "$${error_log_path}" >&2)
-            ;;
-    esac
+    # Setup log file paths
+    full_log_path="$LOG_DIR/$script_name.log"
+    error_log_path="$LOG_DIR/$script_name-error.log"
+    debug_log_path="$LOG_DIR/$script_name-debug.log"
+    trace_log_path="$LOG_DIR/$script_name-trace.log"
+    
+    # Only set bash strict mode if not already set (to avoid conflicts)
+    if ! echo "$-" | grep -q e; then
+        set -euo pipefail
+    fi
     
     # Export log paths for use by other functions
-    export MAIN_LOG_PATH="$${full_log_path}"
-    export ERROR_LOG_PATH="$${error_log_path}"
-    export DEBUG_LOG_PATH="$${debug_log_path}"
-    export TRACE_LOG_PATH="$${trace_log_path}"
+    export MAIN_LOG_PATH="$full_log_path"
+    export ERROR_LOG_PATH="$error_log_path"
+    export DEBUG_LOG_PATH="$debug_log_path"
+    export TRACE_LOG_PATH="$trace_log_path"
+    export LOG_LEVEL="$LOG_LEVEL"
+    
+    # Touch log files to ensure they exist
+    touch "$full_log_path" "$error_log_path" 2>/dev/null || true
 }
 
 # Enhanced logging functions with level control
 log_trace() {
-    [[ "$${LOG_LEVEL:-INFO}" == "TRACE" ]] && echo "[TRACE $(date '+%Y-%m-%d %H:%M:%S')] $*" >&2
+    local message="[TRACE $(date '+%Y-%m-%d %H:%M:%S')] $*"
+    if [ "$LOG_LEVEL" = "TRACE" ] 2>/dev/null; then
+        if [ -n "$MAIN_LOG_PATH" ] 2>/dev/null; then
+            echo "$message" | tee -a "$MAIN_LOG_PATH" >&2
+        else
+            echo "$message" >&2
+        fi
+    fi
 }
 
 log_debug() {
-    [[ "$${DEBUG:-0}" == "1" ]] && echo "[DEBUG $(date '+%Y-%m-%d %H:%M:%S')] $*" >&2
+    local message="[DEBUG $(date '+%Y-%m-%d %H:%M:%S')] $*"
+    if [ "$DEBUG" = "1" ] 2>/dev/null; then
+        if [ -n "$MAIN_LOG_PATH" ] 2>/dev/null; then
+            echo "$message" | tee -a "$MAIN_LOG_PATH" >&2
+        else
+            echo "$message" >&2
+        fi
+    fi
 }
 
 log_info() {
-    # Only output if log level allows info or higher
-    case "$${LOG_LEVEL:-INFO}" in
-        ERROR) return 0 ;;  # Skip info in ERROR mode
-        *) echo "[INFO $(date '+%Y-%m-%d %H:%M:%S')] $*" ;;
-    esac
+    local message="[INFO $(date '+%Y-%m-%d %H:%M:%S')] $*"
+    # Only skip if explicitly set to ERROR mode
+    if [ "$LOG_LEVEL" = "ERROR" ] 2>/dev/null; then
+        return 0
+    else
+        if [ -n "$MAIN_LOG_PATH" ] 2>/dev/null; then
+            echo "$message" | tee -a "$MAIN_LOG_PATH"
+        else
+            echo "$message"
+        fi
+    fi
 }
 
 log_warn() {
-    echo "[WARN $(date '+%Y-%m-%d %H:%M:%S')] $*" >&2
+    local message="[WARN $(date '+%Y-%m-%d %H:%M:%S')] $*"
+    if [ -n "$MAIN_LOG_PATH" ] 2>/dev/null; then
+        echo "$message" | tee -a "$MAIN_LOG_PATH" >&2
+    else
+        echo "$message" >&2
+    fi
 }
 
 log_error() {
-    echo "[ERROR $(date '+%Y-%m-%d %H:%M:%S')] $*" >&2
+    local message="[ERROR $(date '+%Y-%m-%d %H:%M:%S')] $*"
+    if [ -n "$MAIN_LOG_PATH" ] 2>/dev/null; then
+        echo "$message" | tee -a "$MAIN_LOG_PATH" >&2
+    else
+        echo "$message" >&2
+    fi
 }
 
 log_fatal() {
-    echo "[FATAL $(date '+%Y-%m-%d %H:%M:%S')] $*" >&2
+    local message="[FATAL $(date '+%Y-%m-%d %H:%M:%S')] $*"
+    if [ -n "$MAIN_LOG_PATH" ] 2>/dev/null; then
+        echo "$message" | tee -a "$MAIN_LOG_PATH" >&2
+    else
+        echo "$message" >&2
+    fi
     exit 1
-}
-
-# Utility function to temporarily disable tracing for clean output sections
-quiet_exec() {
-    local old_x_state
-    old_x_state=$(set +o | grep xtrace)
-    set +x
-    "$@"
-    eval "$old_x_state"
 }
 
 # Show current logging configuration (useful for debugging)
 log_config_info() {
     echo "=== Logging Configuration ==="
-    echo "Log Level: $${LOG_LEVEL:-INFO}"
-    echo "Debug Mode: $${DEBUG:-0}"
-    echo "Main Log: $${MAIN_LOG_PATH:-<not set>}"
-    echo "Error Log: $${ERROR_LOG_PATH:-<not set>}"
-    echo "Bash Tracing: $${-/*x*/ENABLED}"
+    if [ -n "$LOG_LEVEL" ] 2>/dev/null; then
+        echo "Log Level: $LOG_LEVEL"
+    else
+        echo "Log Level: INFO"
+    fi
+    if [ -n "$DEBUG" ] 2>/dev/null; then
+        echo "Debug Mode: $DEBUG"
+    else
+        echo "Debug Mode: 0"
+    fi
+    if [ -n "$MAIN_LOG_PATH" ] 2>/dev/null; then
+        echo "Main Log: $MAIN_LOG_PATH"
+    else
+        echo "Main Log: <not set>"
+    fi
+    if [ -n "$ERROR_LOG_PATH" ] 2>/dev/null; then
+        echo "Error Log: $ERROR_LOG_PATH"
+    else
+        echo "Error Log: <not set>"
+    fi
+    echo "Bash Tracing: [status check would go here]"
     echo "=========================="
 }
 
-# Initialize logging
-setup_logging
-
-# Log the configuration
-log_info "Logging setup complete. Log file: $${MAIN_LOG_PATH}"
-log_debug "Debug logging enabled"
-log_trace "Trace logging enabled"
-
-
-SYSTEM_PREPARED_FILE="/tmp/system_prepared"
+# Fixed system prepared file path to match what main script expects
+SYSTEM_PREPARED_FILE="/tmp/.system_prepared"
 
 # One-time system preparation (run only once across all scripts)
 prepare_system_once() {
-    if [ "$${SYSTEM_PREPARED}" = "true" ]; then
+    if [ "$SYSTEM_PREPARED" = "true" ] || [ -f "$SYSTEM_PREPARED_FILE" ]; then
         log_info "System already prepared, skipping..."
+        export SYSTEM_PREPARED="true"
         return 0
     fi
     
@@ -189,7 +231,7 @@ prepare_system_once() {
     SYSTEM_PREPARED=true
     
     # Mark system as prepared (persistent across scripts)
-    touch "$${SYSTEM_PREPARED_FILE}"
+    touch "$SYSTEM_PREPARED_FILE"
     export SYSTEM_PREPARED="true"
     
     log_info "System preparation complete"
@@ -289,4 +331,12 @@ handle_error() {
 # Set up error trap
 trap 'handle_error $${LINENO} $?' ERR
 
-log_info "Shared functions loaded successfully"
+# Initialize basic logging function for early use
+# Note: Scripts should call setup_logging() to initialize full logging
+if ! command -v log_info >/dev/null 2>&1; then
+    log_info() {
+        echo "[INFO $(date '+%Y-%m-%d %H:%M:%S')] $*"
+    }
+fi
+
+echo "[INFO $(date '+%Y-%m-%d %H:%M:%S')] Shared functions loaded successfully (call setup_logging to initialize logging)"

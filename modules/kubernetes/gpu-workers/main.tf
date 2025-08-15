@@ -82,6 +82,11 @@ locals {
       vars          = local.shared_functions_vars
       s3_key        = "scripts/workers/00-shared-functions.sh"
     }
+    "001-ec2-metadata-lib" = {
+      template_path = "${local.script_base_path}/shared/001-ec2-metadata-lib.sh.tftpl"
+      vars          = {}
+      s3_key        = "scripts/workers/001-ec2-metadata-lib.sh"
+    }
     "01-install-user-and-tooling" = {
       template_path = "${local.script_base_path}/shared/01-install-user-and-tooling.sh.tftpl"
       vars          = local.shared_template_vars
