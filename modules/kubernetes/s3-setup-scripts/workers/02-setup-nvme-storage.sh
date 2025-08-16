@@ -7,11 +7,11 @@ set -euxo pipefail
 # =================================================================
 # SHARED FUNCTIONS INTEGRATION
 # =================================================================
-SCRIPT_DIR=${script_dir}
+SCRIPT_DIR=$script_dir}
 
 # load shared functions
-if [ -f "$${SCRIPT_DIR}/00-shared-functions.sh" ]; then
-    source "$${SCRIPT_DIR}/00-shared-functions.sh"
+if [ -f "$$SCRIPT_DIR}/00-shared-functions.sh" ]; then
+    source "$$SCRIPT_DIR}/00-shared-functions.sh"
     
     # Verify essential functions are available
     if command -v log_info >/dev/null 2>&1; then
@@ -21,13 +21,13 @@ if [ -f "$${SCRIPT_DIR}/00-shared-functions.sh" ]; then
         exit 1
     fi
 else
-    echo "ERROR: Cannot find shared functions file: $${SCRIPT_DIR}/00-shared-functions.sh"
+    echo "ERROR: Cannot find shared functions file: $$SCRIPT_DIR}/00-shared-functions.sh"
     exit 1
 fi
 
 setup_logging
 
-if [ -z "$${SYSTEM_PREPARED:-}" ] && [ ! -f "/tmp/.system_prepared" ]; then
+if [ -z "$$SYSTEM_PREPARED:-}" ] && [ ! -f "/tmp/.system_prepared" ]; then
     log_info "System not yet prepared, running preparation..."
     prepare_system_once
 else
@@ -39,7 +39,7 @@ fi
 # =================================================================
 # CONFIGURATION VARIABLES (from Terraform)
 # =================================================================
-readonly TARGET_USER="${k8s_user}"
+readonly TARGET_USER="$k8s_user}"
 readonly NVME_MOUNT_POINT="/mnt/nvme_storage"
 readonly MIN_NVME_SIZE_BYTES=107374182400  # 100 GiB
 
@@ -277,7 +277,7 @@ create_symlink() {
             rm -f "$link_path"
         fi
     elif [[ -e "$link_path" ]]; then
-        local backup_path="$${link_path}.backup.$$(date +%s)"
+        local backup_path="$$link_path}.backup.$$(date +%s)"
         log_info "Backing up existing path: $link_path -> $backup_path"
         mv "$link_path" "$backup_path" || log_warn "Failed to backup $link_path"
     fi

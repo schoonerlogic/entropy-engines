@@ -5,11 +5,11 @@
 # =================================================================
 # SHARED FUNCTIONS INTEGRATION
 # =================================================================
-SCRIPT_DIR="${script_dir}"
+SCRIPT_DIR="$script_dir}"
 
 # load shared functions
-if [ -f "$${SCRIPT_DIR}/00-shared-functions.sh" ]; then
-    source "$${SCRIPT_DIR}/00-shared-functions.sh"
+if [ -f "$$SCRIPT_DIR}/00-shared-functions.sh" ]; then
+    source "$$SCRIPT_DIR}/00-shared-functions.sh"
     
     # Verify essential functions are available
     if command -v log_info >/dev/null 2>&1; then
@@ -19,7 +19,7 @@ if [ -f "$${SCRIPT_DIR}/00-shared-functions.sh" ]; then
         exit 1
     fi
 else
-    echo "ERROR: Cannot find shared functions file: $${SCRIPT_DIR}/00-shared-functions.sh"
+    echo "ERROR: Cannot find shared functions file: $$SCRIPT_DIR}/00-shared-functions.sh"
     exit 1
 fi
 
@@ -37,8 +37,8 @@ fi
 # =================================================================
 # CONFIGURATION VARIABLES (from Terraform)
 # =================================================================
-readonly CLUSTER_NAME="${cluster_name}"
-readonly SSM_JOIN_COMMAND_PATH="${ssm_join_command_path}"
+readonly CLUSTER_NAME="$cluster_name}"
+readonly SSM_JOIN_COMMAND_PATH="$ssm_join_command_path}"
 
 log_info "=== Worker Node Cluster Join Started ==="
 log_info "Cluster Name: $CLUSTER_NAME"
@@ -106,7 +106,7 @@ get_join_command() {
         fi
         
         if [ $attempt -lt $max_attempts ]; then
-            log_info "Join command not ready, waiting $${wait_interval}s..."
+            log_info "Join command not ready, waiting $$wait_interval}s..."
             sleep $wait_interval
         fi
         

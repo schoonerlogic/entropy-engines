@@ -16,9 +16,9 @@ DEBUG=0
 # =================================================================
 
 setup_logging() {
-    # Configuration from environment or defaults - these are Terraform interpolated
-    local LOG_DIR="${log_dir}"
-    local LOG_LEVEL="${log_level}"
+    # Configuration from environment or defaults - these are Terraform interpolated values
+    local LOG_DIR="$log_dir}"
+    local LOG_LEVEL="$log_level}"
     # Set default if not provided by Terraform
     if [ -z "$LOG_LEVEL" ]; then
         LOG_LEVEL="INFO"
@@ -41,20 +41,19 @@ setup_logging() {
     
     # Auto-detect calling script name or use parameter
     local script_name
-    if [ -n "$1" ] 2>/dev/null; then
+    if [ -n "$1" ]; then
         script_name="$1"
         echo "Using provided script name: $script_name"
     else
         # More robust detection - walk up BASH_SOURCE until we find non-shared-functions
         local found_caller=""
         for i in 1 2 3 4; do
-            if [ -n "$${BASH_SOURCE[$$i]}" ] 2>/dev/null; then
+            if [ -n "$$BASH_SOURCE[$$i]}" ]; then
                 local candidate=""
-                if [ -n "$${BASH_SOURCE[`$i]}" ]; then
-                    candidate=$(basename "$${BASH_SOURCE[$i]}")
-                    # Remove .sh and .tftpl extensions
-                    candidate="$${candidate%.sh}"
-                    candidate="$${candidate%.tftpl}"
+                if [ -n "$$BASH_SOURCE[$i]}" ]; then
+                    candidate=$(basename "$$BASH_SOURCE[$i]}")
+                    candidate="$$candidate%.sh}"
+                    candidate="$$candidate%.tftpl}"
                 fi
                 # Skip shared functions
                 if [ "$candidate" != "00-shared-functions" ] && [ "$candidate" != "shared-functions" ]; then
@@ -329,7 +328,7 @@ handle_error() {
 }
 
 # Set up error trap
-trap 'handle_error $${LINENO} $?' ERR
+trap 'handle_error $$LINENO} $?' ERR
 
 # Initialize basic logging function for early use
 # Note: Scripts should call setup_logging() to initialize full logging

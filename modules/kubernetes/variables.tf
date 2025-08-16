@@ -1,70 +1,61 @@
-# root/variables.tf - Complete consolidated variable structure
 
-#===============================================================================
-# Core Configuration
-#===============================================================================
-
-variable "core_config" {
-  description = "Core configuration settings"
-  type = object({
-    aws_region  = optional(string, "us-east-1")
-    environment = optional(string, "dev")
-    project     = optional(string, "agentic-platform")
-    vpc_name    = string
-  })
+variable "cluster_name" {
+  description = "The name of the Kubernetes cluster"
+  type        = string
 }
+
+variable "aws_region" {
+  description = "AWS region for deployment"
+  type        = string
+}
+
+variable "log_level" {
+  description = "Log verbosity level"
+  type        = string
+  default     = "INFO" # Optional, if you want a fallback
+}
+
+variable "k8s_scripts_bucket_name" {
+  description = "Name of the S3 bucket containing setup scripts"
+  type        = string
+}
+
 
 #===============================================================================
 # Kubernetes Configuration
 #===============================================================================
+
 variable "kubernetes_config" {
   description = "Kubernetes integration settings"
-
   type = object({
-    enable_kubernetes_tags = bool
-    cluster_name           = string
-    enable_nats_messaging  = bool
-    ssh_private_key_path   = string
-    ssh_public_key_path    = string
-    k8s_user               = string
-    k8s_major_minor_stream = string
-    k8s_full_patch_version = string
-    k8s_apt_package_suffix = string
-    nats_ports = object({
+    enable_kubernetes_tags = optional(bool, true)
+    cluster_name           = optional(string, null) # Will use project name if null
+    enable_nats_messaging  = optional(bool, true)
+    ssh_private_key_path   = optional(string, "~/.ssh/lw.pem")
+    ssh_public_key_path    = optional(string, "~/.ssh/lw.pem.pub")
+    k8s_user               = optional(string, "ubuntu")
+    k8s_major_minor_stream = optional(string, "1.33.3")
+    k8s_full_patch_version = optional(string, "1.33.0")
+    k8s_apt_package_suffix = optional(string, "-0.0")
+
+
+    nats_ports = optional(object({
       client     = number
       cluster    = number
       leafnode   = number
       monitoring = number
-    })
-    ssm_join = object({
-      ssm_join_command_path    = string
-      ssm_certificate_key_path = string
-    })
-  })
-
-  default = {
-    enable_kubernetes_tags = true
-    cluster_name           = null # handle nulls in your locals or modules
-    enable_nats_messaging  = true
-    ssh_private_key_path   = "~/.ssh/lw.pem"
-    ssh_public_key_path    = "~/.ssh/lw.pem.pub"
-    k8s_user               = "ubuntu"
-    k8s_major_minor_stream = "1.33.3"
-    k8s_full_patch_version = "1.33.0"
-    k8s_apt_package_suffix = "-0.0"
-
-    nats_ports = {
+      }), {
       client     = 4222
       cluster    = 6222
       leafnode   = 7422
       monitoring = 8222
-    }
+    })
 
-    ssm_join = {
-      ssm_join_command_path    = ""
-      ssm_certificate_key_path = ""
-    }
-  }
+    ssm_join = optional(object({
+      ssm_join_command_path    = string
+      ssm_certificate_key_path = string
+    }))
+  })
 }
 
 variable "network_config" {
@@ -99,12 +90,12 @@ variable "network_config" {
   })
 
   description = <<-EOT
-   Configuration for Kubernetes resources:
-   - k8s_scripts_bucket_name: Name for new bucket (auto-appends random suffix if not provided)
-   - k8s_scripts_bucket: Existing bucket ARN/name (overrides bucket_name if set)
-   - skip_bucket_validation: Bypass bucket readiness checks (not recommended)
-   - bucket_retry_timeout: Timeout in seconds for bucket validation
-   EOT
+  Configuration for Kubernetes resources:
+  - k8s_scripts_bucket_name: Name for new bucket (auto-appends random suffix if not provided)
+  - k8s_scripts_bucket: Existing bucket ARN/name (overrides bucket_name if set)
+  - skip_bucket_validation: Bypass bucket readiness checks (not recommended)
+  - bucket_retry_timeout: Timeout in seconds for bucket validation
+  EOT
 }
 
 #===============================================================================
@@ -398,102 +389,5 @@ variable "worker_config" {
   #   )
   #   error_message = "When use_instance_requirements is false, must specify at least one instance_type if creating workers."
   # }
-}
-
-#===============================================================================
-# Network Configuration
-#===============================================================================
-variable "pod_cidr_block" {
-  description = "CIDR block for Kubernetes pods"
-  type        = string
-}
-
-variable "service_cidr_block" {
-  description = "CIDR block for Kubernetes services"
-  type        = string
-}
-
-variable "subnet_ids" {
-  description = "List of subnet IDs where GPU workers will be launched"
-  type        = list(string)
-
-  validation {
-    condition     = length(var.subnet_ids) > 0
-    error_message = "At least one subnet ID must be provided."
-  }
-}
-
-variable "security_group_ids" {
-  description = "List of security group IDs for GPU workers"
-  type        = list(string)
-
-  validation {
-    condition     = length(var.security_group_ids) > 0
-    error_message = "At least one security group ID must be provided."
-  }
-}
-
-variable "k8s_scripts_bucket_name" {
-  description = "Name of the S3 bucket for bootstrap"
-  type        = string
-}
-
-# Role names
-variable "control_plane_role_name" {
-  description = "Name of the IAM role for the control plane"
-  type        = string
-  default     = null
-}
-
-variable "worker_role_name" {
-  description = "Name of the IAM role for worker nodes"
-  type        = string
-  default     = null
-}
-
-variable "gpu_worker_role_name" {
-  description = "Name of the IAM role for GPU worker nodes"
-  type        = string
-  default     = null
-}
-
-
-
-#===============================================================================
-# Security Configuration
-#===============================================================================
-
-variable "security_config" {
-  description = "Security configuration settings"
-  type = object({
-    environment           = string
-    ssh_allowed_cidrs     = optional(list(string), []) # Empty by default for security
-    bastion_allowed_cidrs = optional(list(string), []) # Empty by default for security
-    enable_bastion_host   = optional(bool, true)
-    bastion_instance_type = optional(string, "t3.micro")
-    bastion_host          = string
-    bastion_user          = optional(string, "ubuntu")
-    ssh_public_key_path   = optional(string, "~/.ssh/lwpub.pem")
-    ssh_private_key_path  = optional(string, "~/.ssh/lw.pem")
-    ssh_key_name          = string
-    security_group_ids    = list(string)
-  })
-}
-
-#===============================================================================
-# NAT Configuration
-#===============================================================================
-
-variable "nat_config" {
-  description = "NAT configuration settings"
-  type = object({
-    nat_type           = optional(string, "gateway")
-    single_nat_gateway = optional(bool, true)
-  })
-
-  validation {
-    condition     = contains(["gateway", "instance", "none"], var.nat_config.nat_type)
-    error_message = "NAT type must be one of: gateway, instance, none."
-  }
 }
 

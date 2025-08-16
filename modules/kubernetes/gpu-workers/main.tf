@@ -173,10 +173,9 @@ module "gpu_worker_base" {
   instance_requirements     = var.instance_requirements
 
   # Infrastructure configuration
-  base_aws_ami       = var.base_aws_ami
+  aws_ami            = var.aws_ami
   subnet_ids         = var.subnet_ids
   security_group_ids = var.security_group_ids
-  ssh_key_name       = var.ssh_key_name
   worker_role_name   = var.worker_role_name
 
   # ASG configuration

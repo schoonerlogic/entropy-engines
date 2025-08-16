@@ -69,7 +69,7 @@ ec2_retry_with_backoff() {
             if [ $sleep_time -gt $max_delay ]; then
                 sleep_time=$max_delay
             fi
-            ec2_log_debug "Retrying in $${sleep_time}s..."
+            ec2_log_debug "Retrying in $$sleep_time}s..."
             sleep $sleep_time
         fi
         
@@ -135,10 +135,10 @@ ec2_parse_json_field() {
     # Fallback to regex parsing
     local pattern='"'"$field"'":[[:space:]]*"([^"]*)"'
 
-    if echo "$json" | grep -qE "$pattern"; then
-        echo "$json" | sed -n 's/.*'"$pattern"'.*/\1/p'
-        return 0
-    fi
+if echo "$json" | grep -qE "$pattern"; then
+    echo "$json" | sed -n 's/.*'"$pattern"'.*/\1/p'
+    return 0
+fi
     
     return 1
 }
@@ -159,14 +159,14 @@ ec2_get_token() {
         return 1
     fi
     
-    if [ -z "$token" ] || [ ${#token} -lt 10 ]; then
+    if [ -z "$token" ] || [ $#token} -lt 10 ]; then
         ec2_log_error "Invalid or empty token received"
         return 1
     fi
     
     # Set global token variable
     EC2_METADATA_TOKEN="$token"
-    ec2_log_debug "Successfully obtained IMDSv2 token (length: $${#token})"
+    ec2_log_debug "Successfully obtained IMDSv2 token (length: $$#token})"
     return 0
 }
 

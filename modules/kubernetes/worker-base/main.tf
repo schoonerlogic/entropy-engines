@@ -37,8 +37,8 @@ locals {
   environment  = var.environment
 
   # Network configuration
-  base_aws_ami = var.base_aws_ami
-  subnet_ids   = var.subnet_ids
+  aws_ami    = var.aws_ami
+  subnet_ids = var.subnet_ids
 
   # Security configuration
   ssh_key_name       = var.ssh_key_name

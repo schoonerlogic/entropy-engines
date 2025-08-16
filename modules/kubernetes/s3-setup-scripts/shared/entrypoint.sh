@@ -1,14 +1,15 @@
+#!/bin/bash
 # entrypoint.sh.tftpl - Improved version
 set -euxo pipefail
 
 # =================================================================
 # CONFIGURATION
 # =================================================================
-readonly DOWNLOAD_DIR="${script_dir}"
-readonly LOG_DIR="${log_dir}"
+readonly DOWNLOAD_DIR="$script_dir}"
+readonly LOG_DIR="$log_dir}"
 readonly MAIN_LOG="$LOG_DIR/entrypoint.log"
-readonly S3_BUCKET="${s3_bucket_name}"
-readonly NODE_TYPE="${node_type}"
+readonly S3_BUCKET="$s3_bucket_name}"
+readonly NODE_TYPE="$node_type}"
 readonly MAX_NETWORK_ATTEMPTS=30
 readonly MAX_APT_ATTEMPTS=20
 readonly AWS_CLI_TIMEOUT=180

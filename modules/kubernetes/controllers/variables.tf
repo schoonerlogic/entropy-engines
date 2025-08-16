@@ -47,7 +47,7 @@ variable "instance_types" {
   type        = list(string)
 }
 
-variable "base_aws_ami" {
+variable "aws_ami" {
   description = "AMI ID for controller instances"
   type        = string
 }
@@ -137,11 +137,6 @@ variable "script_dependencies" {
 #===============================================================================
 # SSH Configuration
 #===============================================================================
-
-variable "ssh_key_name" {
-  description = "Name of the SSH key pair"
-  type        = string
-}
 
 variable "ssh_public_key_path" {
   description = "Path to SSH public key file"

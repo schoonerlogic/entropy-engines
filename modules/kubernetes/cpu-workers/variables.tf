@@ -146,12 +146,12 @@ variable "instance_requirements" {
 # Infrastructure Configuration
 #===============================================================================
 
-variable "base_aws_ami" {
+variable "aws_ami" {
   description = "AMI ID for CPU worker instances"
   type        = string
 
   validation {
-    condition     = can(regex("^ami-[0-9a-f]{8,}$", var.base_aws_ami))
+    condition     = can(regex("^ami-[0-9a-f]{8,}$", var.aws_ami))
     error_message = "AMI ID must be in the format ami-xxxxxxxx."
   }
 }
@@ -174,11 +174,6 @@ variable "security_group_ids" {
     condition     = length(var.security_group_ids) > 0
     error_message = "At least one security group ID must be provided."
   }
-}
-
-variable "ssh_key_name" {
-  description = "Name of the AWS key pair for SSH access to CPU workers"
-  type        = string
 }
 
 variable "worker_role_name" {

@@ -17,7 +17,7 @@ variable "environment" {
   type        = string
 }
 
-variable "base_aws_ami" {
+variable "aws_ami" {
   description = "Base AMI ID to use for worker instances"
   type        = string
 }
@@ -26,7 +26,6 @@ variable "subnet_ids" {
   description = "List of subnet IDs where worker instances will be launched"
   type        = list(string)
 }
-
 variable "security_group_ids" {
   description = "List of security group IDs to attach to worker instances"
   type        = list(string)

@@ -1,25 +1,25 @@
 #!/bin/bash
-# /tmp/k8s_scripts/k8s-setup-main.sh (Worker Node Version)
-# Main wrapper script that orchestrates worker node setup scripts
+# /tmp/k8s_scripts/k8s-setup-main.sh
+# Main wrapper script that orchestrates all K8s setup scripts
 
-echo "=== Kubernetes Worker Setup Started at $(date) ==="
+echo "=== Kubernetes Setup Started at $(date) ==="
 
 # =================================================================
 # SHARED FUNCTIONS INTEGRATION  
 # =================================================================
-SCRIPT_DIR="${script_dir}"
+SCRIPT_DIR="$script_dir}"
 
 # Set DEBUG default to avoid unbound variable errors
 DEBUG=0
 
-echo "DEBUG: SCRIPT_DIR resolved to: $${SCRIPT_DIR}"
+echo "DEBUG: script_dir resolved to: $script_dir}"
 
 # Load shared functions
-if [ -f "$${SCRIPT_DIR}/00-shared-functions.sh" ]; then
-    source "$${SCRIPT_DIR}/00-shared-functions.sh"
+if [ -f "$$SCRIPT_DIR}/00-shared-functions.sh" ]; then
+    source "$$SCRIPT_DIR}/00-shared-functions.sh"
     
     # Explicitly setup logging with this script's name
-    setup_logging "k8s-worker-setup-main"
+    setup_logging "k8s-setup-main"
     
     # Verify essential functions are available
     if command -v log_info >/dev/null 2>&1; then
@@ -29,14 +29,14 @@ if [ -f "$${SCRIPT_DIR}/00-shared-functions.sh" ]; then
         exit 1
     fi
 else
-    echo "ERROR: Cannot find shared functions file: $${SCRIPT_DIR}/00-shared-functions.sh"
+    echo "ERROR: Cannot find shared functions file: $$SCRIPT_DIR}/00-shared-functions.sh"
     echo "Current directory contents:"
-    ls -la "$${SCRIPT_DIR}/" || echo "Directory does not exist"
+    ls -la "$$SCRIPT_DIR}/" || echo "Directory does not exist"
     exit 1
 fi
 
 # Log that we're starting (log level is handled by shared functions)
-log_info "Starting K8s worker setup"
+log_info "Starting K8s setup"
 
 # System preparation (let shared functions handle the logic)
 log_info "Checking system preparation status..."
@@ -47,16 +47,18 @@ else
     exit 1
 fi
 
-# Define the worker scripts to run in order
+# Define the scripts to run in order
 SCRIPTS=(
     "01-install-user-and-tooling.sh"
-    "02-setup-nvme-storage.sh"
-    "03-join-cluster.sh"
+    "02-install-kubernetes.sh" 
+    "03-configure-cluster.sh"
+    "04-install-cni.sh"
+    "05-install-cluster-addons.sh"
 )
 
 # Execute scripts in sequence
-for script in "$${SCRIPTS[@]}"; do
-    script_path="$${SCRIPT_DIR}/$script"
+for script in "$$SCRIPTS[@]}"; do
+    script_path="$$SCRIPT_DIR}/$script"
     
     if [ -f "$script_path" ]; then
         log_info "Starting script: $script"
@@ -77,11 +79,11 @@ for script in "$${SCRIPTS[@]}"; do
     fi
 done
 
-log_info "=== Kubernetes Worker Setup Completed Successfully at $(date) ==="
+log_info "=== Kubernetes Setup Completed Successfully at $(date) ==="
 
 # Final log message with fallback
 if [ -n "$MAIN_LOG_PATH" ]; then
-    echo "Worker setup completed. Check $MAIN_LOG_PATH for full details."
+    echo "Setup completed. Check $MAIN_LOG_PATH for full details."
 else
-    echo "Worker setup completed. Check /var/log/provisioning/k8s-worker-setup-main.log for full details."
+    echo "Setup completed. Check /var/log/provisioning/k8s-setup-main.log for full details."
 fi
