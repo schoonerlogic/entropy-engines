@@ -48,12 +48,12 @@ setup_logging() {
         # More robust detection - walk up BASH_SOURCE until we find non-shared-functions
         local found_caller=""
         for i in 1 2 3 4; do
-            if [ -n "$$BASH_SOURCE[$$i]}" ]; then
+            if [ -n "${BASH_SOURCE[${i]}" ]; then
                 local candidate=""
-                if [ -n "$$BASH_SOURCE[$i]}" ]; then
-                    candidate=$(basename "$$BASH_SOURCE[$i]}")
-                    candidate="$$candidate%.sh}"
-                    candidate="$$candidate%.tftpl}"
+                if [ -n "${BASH_SOURCE[$i]}" ]; then
+                    candidate=$(basename "${BASH_SOURCE[$i]}")
+                    candidate="${candidate%.sh}"
+                    candidate="${candidate%.tftpl}"
                 fi
                 # Skip shared functions
                 if [ "$candidate" != "00-shared-functions" ] && [ "$candidate" != "shared-functions" ]; then
@@ -328,7 +328,7 @@ handle_error() {
 }
 
 # Set up error trap
-trap 'handle_error $$LINENO} $?' ERR
+trap 'handle_error ${LINENO} $?' ERR
 
 # Initialize basic logging function for early use
 # Note: Scripts should call setup_logging() to initialize full logging

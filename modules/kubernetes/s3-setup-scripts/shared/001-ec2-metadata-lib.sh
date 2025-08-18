@@ -2,7 +2,7 @@
 
 # EC2 Metadata Service Library for Terraform-Generated Scripts
 # Source this file to access EC2 metadata functions
-# Fixed for partial $$ escaping behavior in this Terraform environment
+# Fixed for partial ${ escaping behavior in this Terraform environment
 
 # Prevent multiple sourcing
 if [ -n "$EC2_METADATA_LIB_LOADED" ] 2>/dev/null; then
@@ -51,9 +51,9 @@ ec2_log_debug() {
 
 # Retry function with exponential backoff
 ec2_retry_with_backoff() {
-    local max_attempts="$1"
-    local delay="$2"
-    local max_delay="$3"
+    local max_attempts=$MAX_RETRIES
+    local delay=$EC2_INITIAL_DELAY
+    local max_delay=$EC2_MAX_DELAY
     shift 3
     local attempt=1
     
@@ -69,7 +69,7 @@ ec2_retry_with_backoff() {
             if [ $sleep_time -gt $max_delay ]; then
                 sleep_time=$max_delay
             fi
-            ec2_log_debug "Retrying in $$sleep_time}s..."
+            ec2_log_debug "Retrying in ${sleep_time}s..."
             sleep $sleep_time
         fi
         
@@ -166,7 +166,7 @@ ec2_get_token() {
     
     # Set global token variable
     EC2_METADATA_TOKEN="$token"
-    ec2_log_debug "Successfully obtained IMDSv2 token (length: $$#token})"
+    ec2_log_debug "Successfully obtained IMDSv2 token (length: ${#token})"
     return 0
 }
 
@@ -343,7 +343,7 @@ ec2_init_metadata() {
 # Cache metadata to file for use by other scripts
 ec2_cache_metadata() {
     cat > "$EC2_METADATA_CACHE_FILE" << 'EOF'
-# AWS Instance Metadata - Generated $$(date -u +%Y-%m-%dT%H:%M:%SZ)
+# AWS Instance Metadata - Generated ${(date -u +%Y-%m-%dT%H:%M:%SZ)
 AWS_INSTANCE_ID=$AWS_INSTANCE_ID
 AWS_INSTANCE_IP=$AWS_INSTANCE_IP
 AWS_PUBLIC_IP=$AWS_PUBLIC_IP
@@ -353,7 +353,7 @@ AWS_INSTANCE_TYPE=$AWS_INSTANCE_TYPE
 AWS_ACCOUNT_ID=$AWS_ACCOUNT_ID
 INSTANCE_IP=$AWS_INSTANCE_IP
 INSTANCE_REGION=$AWS_REGION
-METADATA_UPDATED=$$(date -u +%Y-%m-%dT%H:%M:%SZ)
+METADATA_UPDATED=${(date -u +%Y-%m-%dT%H:%M:%SZ)
 EOF
     
     chmod 644 "$EC2_METADATA_CACHE_FILE"

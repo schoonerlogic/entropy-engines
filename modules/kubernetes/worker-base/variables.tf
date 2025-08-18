@@ -190,9 +190,8 @@ variable "block_device_mappings" {
 #===============================================================================
 # Optional Configuration
 #===============================================================================
-
-variable "ssh_key_name" {
-  description = "Name of the AWS key pair to use for instance access"
+variable "s3_scripts_hash" {
+  description = "Hash key passed in to trigger instance updates when install scripts change"
   type        = string
   default     = null
 }

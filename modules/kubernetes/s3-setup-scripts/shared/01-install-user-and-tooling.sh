@@ -12,8 +12,8 @@ SCRIPT_DIR="$script_dir}"
 DEBUG=0
 
 # load shared functions
-if [ -f "$$SCRIPT_DIR}/00-shared-functions.sh" ]; then
-    source "$$SCRIPT_DIR}/00-shared-functions.sh"
+if [ -f "${SCRIPT_DIR}/00-shared-functions.sh" ]; then
+    source "${SCRIPT_DIR}/00-shared-functions.sh"
     
     # Verify essential functions are available
     if command -v log_info >/dev/null 2>&1; then
@@ -23,7 +23,7 @@ if [ -f "$$SCRIPT_DIR}/00-shared-functions.sh" ]; then
         exit 1
     fi
 else
-    echo "ERROR: Cannot find shared functions file: $$SCRIPT_DIR}/00-shared-functions.sh"
+    echo "ERROR: Cannot find shared functions file: ${SCRIPT_DIR}/00-shared-functions.sh"
     exit 1
 fi
 
@@ -45,7 +45,7 @@ readonly TARGET_USER="$k8s_user}"
 readonly K8S_REPO_STREAM="$k8s_major_minor_stream}"
 readonly K8S_PKG_VERSION_STRING="$k8s_package_version_string}"
 readonly K8S_KEYRING_DIR="/etc/apt/keyrings"
-readonly K8S_KEYRING_FILE="$$K8S_KEYRING_DIR}/kubernetes-apt-keyring.gpg"
+readonly K8S_KEYRING_FILE="${K8S_KEYRING_DIR}/kubernetes-apt-keyring.gpg"
 
 log_info "=== User and Tooling Installation Started ==="
 log_info "Target User: $TARGET_USER"
@@ -55,7 +55,7 @@ log_info "K8S Package Version: $K8S_PKG_VERSION_STRING"
 # =================================================================
 # INSTANCE METADATA RETRIEVAL
 # =================================================================
-source "$$SCRIPT_DIR}/ec2-metadata-lib.sh"
+source "${SCRIPT_DIR}/ec2-metadata-lib.sh"
 ec2_ensure_metadata || exit 1
 
 # =================================================================

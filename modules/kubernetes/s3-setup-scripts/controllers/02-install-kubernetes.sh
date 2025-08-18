@@ -8,8 +8,8 @@
 SCRIPT_DIR="$script_dir}"
 
 # load shared functions
-if [ -f "$$SCRIPT_DIR}/00-shared-functions.sh" ]; then
-    source "$$SCRIPT_DIR}/00-shared-functions.sh"
+if [ -f "${SCRIPT_DIR}/00-shared-functions.sh" ]; then
+    source "${SCRIPT_DIR}/00-shared-functions.sh"
     
     # Verify essential functions are available
     if command -v log_info >/dev/null 2>&1; then
@@ -19,13 +19,13 @@ if [ -f "$$SCRIPT_DIR}/00-shared-functions.sh" ]; then
         exit 1
     fi
 else
-    echo "ERROR: Cannot find shared functions file: $$SCRIPT_DIR}/00-shared-functions.sh"
+    echo "ERROR: Cannot find shared functions file: ${SCRIPT_DIR}/00-shared-functions.sh"
     exit 1
 fi 
 
 setup_logging "install-kubernetes"
 
-log_info "Starting K8s setup with log level: $$LOG_LEVEL}"
+log_info "Starting K8s setup with log level: ${LOG_LEVEL}"
 
 if [ -z "$SYSTEM_PREPARED" ] && [ ! -f "/tmp/.system_prepared" ]; then
     log_info "System not yet prepared, running preparation..."
@@ -37,7 +37,7 @@ fi
 # =================================================================
 # SHARED EC2 METADATA
 # =================================================================
-source "$$SCRIPT_DIR}/001-ec2-metadata-lib.sh"
+source "${SCRIPT_DIR}/001-ec2-metadata-lib.sh"
 ec2_ensure_metadata || exit 1
 
 # Initialize metadata (will cache for other scripts)
@@ -55,13 +55,13 @@ readonly POD_CIDR_BLOCK=$pod_cidr_block}
 readonly SERVICE_CIDR_BLOCK=$service_cidr_block}
 readonly SSM_JOIN_COMMAND_PATH=$ssm_join_command_path}
 readonly SSM_CERTIFICATE_KEY_PATH=$ssm_certificate_key_path}
-readonly PRIMARY_PARAM="/k8s/$$CLUSTER_NAME}/primary-controller"
+readonly PRIMARY_PARAM="/k8s/${CLUSTER_NAME}/primary-controller"
 
 log_info "=== Control Plane Configuration Started ==="
-log_info "Cluster Name: $$CLUSTER_NAME}"
-log_info "Kubernetes Version: $$K8S_VERSION}"
-log_info "Pod CIDR: $$POD_CIDR_BLOCK}"
-log_info "Service CIDR: $$SERVICE_CIDR_BLOCK}"
+log_info "Cluster Name: ${CLUSTER_NAME}"
+log_info "Kubernetes Version: ${K8S_VERSION}"
+log_info "Pod CIDR: ${POD_CIDR_BLOCK}"
+log_info "Service CIDR: ${SERVICE_CIDR_BLOCK}"
 
 # =================================================================
 # CONTROLLER ROLE DETERMINATION
@@ -70,28 +70,28 @@ determine_controller_role() {
     log_info "=== Determining Controller Role ==="
     
     # Check for existing primary controller
-    log_info "Checking SSM parameter: $$PRIMARY_PARAM}"
+    log_info "Checking SSM parameter: ${PRIMARY_PARAM}"
     
     local existing_primary=""
-    if existing_primary=$(aws ssm get-parameter --name "$$PRIMARY_PARAM}" \
+    if existing_primary=$(aws ssm get-parameter --name "${PRIMARY_PARAM}" \
                             --query Parameter.Value --output text \
-                            --region "$$INSTANCE_REGION}" 2>/dev/null); then
-        log_info "Found existing primary controller: $$existing_primary}"
+                            --region "${INSTANCE_REGION}" 2>/dev/null); then
+        log_info "Found existing primary controller: ${existing_primary}"
     else
         log_info "No existing primary controller found"
         existing_primary="UNASSIGNED"
     fi
     
     # Determine role based on existing primary
-    if [ "$$existing_primary}" = "UNASSIGNED" ] || [ "$$existing_primary}" = "None" ] || [ $-z "$$existing_primary}" ]; then
+    if [ "${existing_primary}" = "UNASSIGNED" ] || [ "${existing_primary}" = "None" ] || [ $-z "${existing_primary}" ]; then
         log_info "Attempting to claim primary controller role..."
                %
         # Attempt to claim primary role
-        if aws ssm put-parameter --name "$$PRIMARY_PARAM}" \
-             --value "$$INSTANCE_IP}" \
+        if aws ssm put-parameter --name "${PRIMARY_PARAM}" \
+             --value "${INSTANCE_IP}" \
              --type "String" \
              --overwrite \
-             --region "$$INSTANCE_REGION}" >/dev/null 2>&1; then
+             --region "${INSTANCE_REGION}" >/dev/null 2>&1; then
             
             export K8S_ROLE="primary"
             log_info "✅ Successfully claimed primary controller role"
@@ -100,16 +100,16 @@ determine_controller_role() {
             return 1
         fi
         
-    elif [ "$$existing_primary}" = "$$INSTANCE_IP}" ]; then
+    elif [ "${existing_primary}" = "${INSTANCE_IP}" ]; then
         export K8S_ROLE="primary"
         log_info "✅ Already assigned as primary controller"
         
     else
         export K8S_ROLE="secondary"
-        log_info "✅ Assigned as secondary controller (Primary: $$existing_primary})"
+        log_info "✅ Assigned as secondary controller (Primary: ${existing_primary})"
     fi
     
-    log_info "Controller role: $$K8S_ROLE}"
+    log_info "Controller role: ${K8S_ROLE}"
     return 0
 }
 
@@ -120,31 +120,31 @@ generate_kubeadm_config() {
     log_info "=== Generating kubeadm Configuration ==="
     
     local config_dir="/etc/kubeadm"
-    local config_file="$$config_dir}/kubeadm-config.yaml"
+    local config_file="${config_dir}/kubeadm-config.yaml"
     
     # Create config directory
-    mkdir -p "$$config_dir}"
+    mkdir -p "${config_dir}"
     
     # Generate kubeadm config with current instance IP
-    cat > "$$config_file}" <<KUBEADM_EOF
+    cat > "${config_file}" <<KUBEADM_EOF
 apiVersion: kubeadm.k8s.io/v1beta3
 kind: InitConfiguration
 nodeRegistration:
   kubeletExtraArgs:
     cloud-provider: external
-    node-ip: $$INSTANCE_IP}
+    node-ip: ${INSTANCE_IP}
 
 ---
 apiVersion: kubeadm.k8s.io/v1beta3
 kind: ClusterConfiguration
-kubernetesVersion: $$K8S_VERSION}
-clusterName: $$CLUSTER_NAME}
-controlPlaneEndpoint: $$INSTANCE_IP}:6443
+kubernetesVersion: ${K8S_VERSION}
+clusterName: ${CLUSTER_NAME}
+controlPlaneEndpoint: ${INSTANCE_IP}:6443
 apiServer:
-  advertiseAddress: $$INSTANCE_IP}
+  advertiseAddress: ${INSTANCE_IP}
   bindPort: 6443
   certSANs:
-    - $$INSTANCE_IP}
+    - ${INSTANCE_IP}
     - "kubernetes"
     - "kubernetes.default"
     - "kubernetes.default.svc"
@@ -154,8 +154,8 @@ apiServer:
   extraArgs:
     cloud-provider: external
 networking:
-  podSubnet: $$POD_CIDR_BLOCK}
-  serviceSubnet: $$SERVICE_CIDR_BLOCK}
+  podSubnet: ${POD_CIDR_BLOCK}
+  serviceSubnet: ${SERVICE_CIDR_BLOCK}
   dnsDomain: cluster.local
 controllerManager:
   extraArgs:
@@ -172,18 +172,18 @@ rotateCertificates: true
 KUBEADM_EOF
 
     # Verify IP substitution worked
-    if ! grep -q "$$INSTANCE_IP}" "$$config_file}"; then
+    if ! grep -q "${INSTANCE_IP}" "${config_file}"; then
         log_error "IP substitution failed in kubeadm config"
         return 1
     fi
     
     # Set proper ownership
-    chown root:root "$$config_file}"
-    chmod 644 "$$config_file}"
+    chown root:root "${config_file}"
+    chmod 644 "${config_file}"
     
-    log_info "✅ Kubeadm configuration generated: $$config_file}"
+    log_info "✅ Kubeadm configuration generated: ${config_file}"
     log_info "Configuration preview:"
-    head -20 "$$config_file}" | while IFS= read -r line; do
+    head -20 "${config_file}" | while IFS= read -r line; do
         log_info "  $line"
     done
     
@@ -215,7 +215,7 @@ initialize_primary_controller() {
     
     # Initialize the cluster
     log_info "Starting cluster initialization..."
-    if kubeadm init --config "$$config_file}" --upload-certs --v=5; then
+    if kubeadm init --config "${config_file}" --upload-certs --v=5; then
         log_info "✅ Cluster initialization completed successfully"
     else
         log_error "Cluster initialization failed"
@@ -269,9 +269,9 @@ store_join_information() {
     
     # Store in SSM Parameter Store
     log_info "Storing join command in SSM..."
-    if aws ssm put-parameter --name "$$SSM_JOIN_COMMAND_PATH}" \
-         --value "$$join_cmd}" --type "SecureString" --overwrite \
-         --region "$$INSTANCE_REGION}" >/dev/null 2>&1; then
+    if aws ssm put-parameter --name "${SSM_JOIN_COMMAND_PATH}" \
+         --value "${join_cmd}" --type "SecureString" --overwrite \
+         --region "${INSTANCE_REGION}" >/dev/null 2>&1; then
         log_info "✅ Join command stored in SSM"
     else
         log_error "Failed to store join command in SSM"
@@ -279,9 +279,9 @@ store_join_information() {
     fi
     
     log_info "Storing certificate key in SSM..."
-    if aws ssm put-parameter --name "$$SSM_CERTIFICATE_KEY_PATH}" \
-         --value "$$cert_key}" --type "SecureString" --overwrite \
-         --region "$$INSTANCE_REGION}" >/dev/null 2>&1; then
+    if aws ssm put-parameter --name "${SSM_CERTIFICATE_KEY_PATH}" \
+         --value "${cert_key}" --type "SecureString" --overwrite \
+         --region "${INSTANCE_REGION}" >/dev/null 2>&1; then
         log_info "✅ Certificate key stored in SSM"
     else
         log_error "Failed to store certificate key in SSM"
@@ -310,14 +310,14 @@ join_secondary_controller() {
         log_info "Attempt $attempt/$max_attempts to retrieve join parameters..."
         
         # Try to get join command
-        if join_cmd=$(aws ssm get-parameter --name "$$SSM_JOIN_COMMAND_PATH}" \
+        if join_cmd=$(aws ssm get-parameter --name "${SSM_JOIN_COMMAND_PATH}" \
                         --with-decryption --query Parameter.Value --output text \
-                        --region "$$INSTANCE_REGION}" 2>/dev/null) && [ -n "$$join_cmd}" ]; then
+                        --region "${INSTANCE_REGION}" 2>/dev/null) && [ -n "${join_cmd}" ]; then
             
             # Try to get certificate key
-            if cert_key=$(aws ssm get-parameter --name "$$SSM_CERTIFICATE_KEY_PATH}" \
+            if cert_key=$(aws ssm get-parameter --name "${SSM_CERTIFICATE_KEY_PATH}" \
                             --with-decryption --query Parameter.Value --output text \
-                            --region "$$INSTANCE_REGION}" 2>/dev/null) && [ -n "$$cert_key}" ]; then
+                            --region "${INSTANCE_REGION}" 2>/dev/null) && [ -n "${cert_key}" ]; then
                 
                 log_info "✅ Join parameters retrieved successfully"
                 break
@@ -325,23 +325,23 @@ join_secondary_controller() {
         fi
         
         if [ $attempt -eq $max_attempts ]; then
-            log_error "Timeout waiting for join parameters after $$((max_attempts * wait_interval)) seconds"
+            log_error "Timeout waiting for join parameters after ${((max_attempts * wait_interval)) seconds"
             return 1
         fi
         
-        log_info "Join parameters not ready, waiting $$wait_interval}s..."
+        log_info "Join parameters not ready, waiting ${wait_interval}s..."
         sleep $wait_interval
     done
     
     # Parse join command to extract components
     local join_args=""
-    join_args=$(echo "$$join_cmd}" | sed 's/kubeadm join //')
+    join_args=$(echo "${join_cmd}" | sed 's/kubeadm join //')
     
     log_info "Joining cluster as control plane node..."
-    log_info "Join target: $(echo $join_args | awk '{print $$1}')"
+    log_info "Join target: $(echo $join_args | awk '{print ${1}')"
     
     # Perform the join operation
-    if kubeadm join $join_args --control-plane --certificate-key "$$cert_key}" --v=5; then
+    if kubeadm join $join_args --control-plane --certificate-key "${cert_key}" --v=5; then
         log_info "✅ Successfully joined cluster as secondary controller"
     else
         log_error "Failed to join cluster"
@@ -384,7 +384,7 @@ validate_cluster() {
     log_info "Node status:"
     if kubectl get nodes >/dev/null 2>&1; then
         kubectl get nodes -o wide | while IFS= read -r line; do
-            log_info "  $$line"
+            log_info "  ${line"
         done
     else
         log_warn "Could not retrieve node status"
@@ -394,7 +394,7 @@ validate_cluster() {
     log_info "System pods status:"
     if kubectl get pods -n kube-system >/dev/null 2>&1; then
         kubectl get pods -n kube-system | while IFS= read -r line; do
-            log_info "  $$line"
+            log_info "  ${line"
         done
     else
         log_warn "Could not retrieve system pods status"
@@ -416,7 +416,7 @@ main() {
     fi
     
     # Execute role-specific logic
-    if [ "$$K8S_ROLE}" = "primary" ]; then
+    if [ "${K8S_ROLE}" = "primary" ]; then
         log_info "Configuring as PRIMARY controller"
         
         # Generate kubeadm config
@@ -431,7 +431,7 @@ main() {
             return 1
         fi
         
-    elif [ "$$K8S_ROLE}" = "secondary" ]; then
+    elif [ "${K8S_ROLE}" = "secondary" ]; then
         log_info "Configuring as SECONDARY controller"
         
         # Join existing cluster
@@ -441,7 +441,7 @@ main() {
         fi
         
     else
-        log_error "Unknown controller role: $$K8S_ROLE}"
+        log_error "Unknown controller role: ${K8S_ROLE}"
         return 1
     fi
     
@@ -449,9 +449,9 @@ main() {
     validate_cluster || log_warn "Cluster validation had issues"
     
     log_info "=== Control Plane Configuration Completed Successfully ==="
-    log_info "Role: $$K8S_ROLE}"
-    log_info "Instance IP: $$INSTANCE_IP}"
-    log_info "Cluster: $$CLUSTER_NAME}"
+    log_info "Role: ${K8S_ROLE}"
+    log_info "Instance IP: ${INSTANCE_IP}"
+    log_info "Cluster: ${CLUSTER_NAME}"
     
     return 0
 }

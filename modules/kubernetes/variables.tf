@@ -1,18 +1,35 @@
+# ./modules/kubernetes/variables.tf
+
+#===============================================================================
+# Core Configuration - ADD THIS
+#===============================================================================
+variable "core_config" {
+  description = "Core configuration settings"
+  type = object({
+    aws_region  = string
+    environment = string
+    project     = string
+    vpc_name    = string
+  })
+}
 
 variable "cluster_name" {
   description = "The name of the Kubernetes cluster"
   type        = string
+  default     = null # Allow this to be optional since it can come from kubernetes_config
 }
 
 variable "aws_region" {
   description = "AWS region for deployment"
-  type        = string
+  type = object({
+    name = string
+  })
 }
 
 variable "log_level" {
   description = "Log verbosity level"
   type        = string
-  default     = "INFO" # Optional, if you want a fallback
+  default     = "INFO"
 }
 
 variable "k8s_scripts_bucket_name" {
@@ -20,16 +37,81 @@ variable "k8s_scripts_bucket_name" {
   type        = string
 }
 
+variable "aws_ami" {
+  description = "Base AMI ID to use for worker instances"
+  type        = string
+}
+
+#===============================================================================
+# Security Configuration - ADD THIS
+#===============================================================================
+variable "security_config" {
+  description = "Security configuration settings"
+  type = object({
+    environment           = string
+    ssh_allowed_cidrs     = optional(list(string), [])
+    bastion_allowed_cidrs = optional(list(string), [])
+    enable_bastion_host   = optional(bool, true)
+    bastion_instance_type = optional(string, "t3.micro")
+    bastion_host          = string
+    bastion_user          = optional(string, "ubuntu")
+    ssh_public_key_path   = optional(string, "~/.ssh/lwpub.pem")
+    ssh_private_key_path  = optional(string, "~/.ssh/lw.pem")
+    ssh_key_name          = string
+    security_group_ids    = list(string)
+  })
+}
+
+#===============================================================================
+# Network Variables - ADD THESE
+#===============================================================================
+variable "pod_cidr_block" {
+  description = "CIDR block for Kubernetes pods"
+  type        = string
+}
+
+variable "service_cidr_block" {
+  description = "CIDR block for Kubernetes services"
+  type        = string
+}
+
+variable "subnet_ids" {
+  description = "List of subnet IDs where workers will be launched"
+  type        = list(string)
+}
+
+variable "security_group_ids" {
+  description = "List of security group IDs for workers"
+  type        = list(string)
+}
+
+# Role names
+variable "control_plane_role_name" {
+  description = "Name of the IAM role for the control plane"
+  type        = string
+  default     = null
+}
+
+variable "worker_role_name" {
+  description = "Name of the IAM role for worker nodes"
+  type        = string
+  default     = null
+}
+
+variable "gpu_worker_role_name" {
+  description = "Name of the IAM role for GPU worker nodes"
+  type        = string
+  default     = null
+}
 
 #===============================================================================
 # Kubernetes Configuration
 #===============================================================================
-
 variable "kubernetes_config" {
   description = "Kubernetes integration settings"
   type = object({
     enable_kubernetes_tags = optional(bool, true)
-    cluster_name           = optional(string, null) # Will use project name if null
+    cluster_name           = optional(string, null)
     enable_nats_messaging  = optional(bool, true)
     ssh_private_key_path   = optional(string, "~/.ssh/lw.pem")
     ssh_public_key_path    = optional(string, "~/.ssh/lw.pem.pub")
@@ -37,7 +119,6 @@ variable "kubernetes_config" {
     k8s_major_minor_stream = optional(string, "1.33.3")
     k8s_full_patch_version = optional(string, "1.33.0")
     k8s_apt_package_suffix = optional(string, "-0.0")
-
 
     nats_ports = optional(object({
       client     = number
@@ -54,24 +135,20 @@ variable "kubernetes_config" {
     ssm_join = optional(object({
       ssm_join_command_path    = string
       ssm_certificate_key_path = string
-    }))
+      }), {
+      ssm_join_command_path    = ""
+      ssm_certificate_key_path = ""
+    })
   })
 }
 
 variable "network_config" {
   type = object({
-    # Bucket name (for new bucket creation)
     k8s_scripts_bucket_name = optional(string, "k8s-scripts-bucket")
-
-    # Existing bucket name (if not creating new)
-    k8s_scripts_bucket = optional(string, null)
-
-    # Network configuration
-    vpc_cidr = optional(string, "10.0.0.0/16")
-
-    # Add these new fields for bucket validation
-    skip_bucket_validation = optional(bool, false)
-    bucket_retry_timeout   = optional(number, 300) # 5 minutes
+    k8s_scripts_bucket      = optional(string, null)
+    vpc_cidr                = optional(string, "10.0.0.0/16")
+    skip_bucket_validation  = optional(bool, false)
+    bucket_retry_timeout    = optional(number, 300)
 
     kubernetes_cidrs = optional(object({
       pod_cidr     = string
@@ -82,11 +159,15 @@ variable "network_config" {
     })
 
     cluster_dns_ip       = optional(string, "10.244.0.0/16")
-    availability_zones   = optional(list(string), null) # Will use data source if null
+    availability_zones   = optional(list(string), null)
     public_subnet_count  = optional(number, 2)
     private_subnet_count = optional(number, 4)
     subnet_ids           = list(string)
     iam_policy_version   = optional(string, "v1")
+
+    # ADD THESE MISSING FIELDS
+    private_subnet_ids              = optional(list(string), [])
+    control_plane_security_group_id = optional(list(string), [])
   })
 
   description = <<-EOT
@@ -99,31 +180,29 @@ variable "network_config" {
 }
 
 #===============================================================================
-# Base Instance Configuration (applies to ALL instances)
+# Base Instance Configuration
 #===============================================================================
-
 variable "instance_config" {
   description = "Base instance configuration settings for all instance types"
   type = object({
     ami_architecture         = optional(string, "arm64")
     ubuntu_version           = optional(string, "22.04")
     enable_volume_encryption = optional(bool, true)
-    kms_key_id               = optional(string, null) # Use AWS managed key if null
+    kms_key_id               = optional(string, null)
 
-    # Default block device mappings (used by all instances unless overridden)
     default_block_device_mappings = optional(list(object({
       device_name           = string
       volume_size           = number
       volume_type           = optional(string, "gp3")
       delete_on_termination = optional(bool, true)
       encrypted             = optional(bool, true)
-      iops                  = optional(number, null) # For io1/io2/gp3 volumes
-      throughput            = optional(number, null) # For gp3 volumes only
-      kms_key_id            = optional(string, null) # Override instance-level KMS key
+      iops                  = optional(number, null)
+      throughput            = optional(number, null)
+      kms_key_id            = optional(string, null)
       })), [
       {
         device_name           = "/dev/sda1"
-        volume_size           = 30 # Minimal since you use NVMe ephemeral
+        volume_size           = 30
         volume_type           = "gp3"
         delete_on_termination = true
         encrypted             = true
@@ -132,54 +211,35 @@ variable "instance_config" {
   })
 }
 
-variable "aws_ami" {
-  description = "Base AMI ID to use for worker instances"
-  type        = string
-}
-
-
-#===============================================================================
-# Cost Optimization
-#===============================================================================
-
-variable "cost_optimization" {
-  description = "Cost optimization settings"
-  type = object({
-    enable_spot_instances = optional(bool, true)
-    enable_vpc_endpoints  = optional(bool, true)
-  })
-  default = {}
-}
-
 #===============================================================================
 # IAM Configuration
 #===============================================================================
-
 variable "iam_config" {
   description = "IAM configuration settings"
   type = object({
     control_plane_role_name = optional(string, "control-plane-role-name")
     worker_role_name        = optional(string, "cpu-worker-role-name")
-    gpu_worker_role_name    = optional(string, "gpu-worker-role-name") # Optional separate GPU role with additional permissions
+    gpu_worker_role_name    = optional(string, "gpu-worker-role-name")
+    # ADD MISSING FIELD
+    cpu_worker_role_name = optional(string, null)
   })
   default = {}
 }
 
-
 #===============================================================================
 # Control Plane Configuration
 #===============================================================================
-
 variable "k8s_control_plane_config" {
   description = "Kubernetes control plane configuration"
   type = object({
     instance_count      = optional(number, 1)
     instance_type       = optional(string, "t4g.medium")
-    on_demand_count     = optional(number, 1) # Control plane typically on-demand
-    spot_count          = optional(number, 0) # Control plane rarely uses spot
+    on_demand_count     = optional(number, 1)
+    spot_count          = optional(number, 0)
     spot_instance_types = optional(list(string), [])
+    # ADD MISSING FIELD
+    instance_types = optional(list(string), ["t4g.medium"])
 
-    # Control plane can override instance_config defaults if needed
     block_device_mappings = optional(list(object({
       device_name           = string
       volume_size           = number
@@ -189,30 +249,20 @@ variable "k8s_control_plane_config" {
       iops                  = optional(number, null)
       throughput            = optional(number, null)
       kms_key_id            = optional(string, null)
-    })), null) # null = use instance_config defaults
+    })), null)
   })
   default = {}
 }
 
-
-
 #===============================================================================
-# Consolidated Worker Configuration (replaces separate CPU/GPU configs)
+# Worker Configuration
 #===============================================================================
-
 variable "worker_config" {
   description = "Consolidated worker node configuration settings"
   type = object({
-
-    #---------------------------------------------------------------------------
-    # Instance Configuration (shared by both worker types)
-    #---------------------------------------------------------------------------
-
-    # Traditional instance types (alternative to instance requirements)
     instance_types            = optional(list(string), [])
     use_instance_requirements = optional(bool, false)
 
-    # Instance requirements (comprehensive object for both CPU and GPU)
     instance_requirements = optional(object({
       vcpu_count = object({
         min = number
@@ -230,16 +280,12 @@ variable "worker_config" {
       burstable_performance         = optional(string, "included")
       bare_metal                    = optional(string, "excluded")
       require_hibernate_support     = optional(bool, false)
-
-      # Storage requirements
-      local_storage       = optional(string, "included") # For NVMe
-      local_storage_types = optional(list(string), ["ssd"])
+      local_storage                 = optional(string, "included")
+      local_storage_types           = optional(list(string), ["ssd"])
       total_local_storage_gb = optional(object({
         min = optional(number, null)
         max = optional(number, null)
       }), null)
-
-      # Network performance
       network_interface_count = optional(object({
         min = optional(number, null)
         max = optional(number, null)
@@ -248,14 +294,10 @@ variable "worker_config" {
         min = optional(number, null)
         max = optional(number, null)
       }), null)
-
-      # EBS bandwidth
       baseline_ebs_bandwidth_mbps = optional(object({
         min = optional(number, null)
         max = optional(number, null)
       }), null)
-
-      # GPU-specific requirements (only used by GPU workers)
       accelerator_count = optional(object({
         min = optional(number, null)
         max = optional(number, null)
@@ -264,10 +306,6 @@ variable "worker_config" {
       accelerator_names         = optional(list(string), [])
       accelerator_types         = optional(list(string), [])
     }), null)
-
-    #---------------------------------------------------------------------------
-    # Instance Counts (per worker type)
-    #---------------------------------------------------------------------------
 
     cpu_workers = optional(object({
       on_demand_count = optional(number, 0)
@@ -279,13 +317,9 @@ variable "worker_config" {
       spot_count      = optional(number, 0)
     }), { on_demand_count = 0, spot_count = 0 })
 
-    #---------------------------------------------------------------------------
-    # Auto Scaling Group Configuration (shared defaults)
-    #---------------------------------------------------------------------------
-
     asg_config = optional(object({
-      min_size                  = optional(number, null) # defaults to total count
-      max_size                  = optional(number, null) # defaults to total count
+      min_size                  = optional(number, null)
+      max_size                  = optional(number, null)
       health_check_type         = optional(string, "EC2")
       health_check_grace_period = optional(number, 300)
       min_healthy_percentage    = optional(number, 50)
@@ -294,18 +328,10 @@ variable "worker_config" {
       instance_refresh_triggers = optional(list(string), ["tag"])
     }), {})
 
-    #---------------------------------------------------------------------------
-    # Spot Configuration (shared defaults)
-    #---------------------------------------------------------------------------
-
     spot_config = optional(object({
       spot_allocation_strategy = optional(string, "capacity-optimized")
       spot_instance_pools      = optional(number, 2)
     }), {})
-
-    #---------------------------------------------------------------------------
-    # Worker Storage Overrides (overrides instance_config defaults for workers)
-    #---------------------------------------------------------------------------
 
     worker_storage_overrides = optional(object({
       block_device_mappings = optional(list(object({
@@ -317,27 +343,20 @@ variable "worker_config" {
         iops                  = optional(number, null)
         throughput            = optional(number, null)
         kms_key_id            = optional(string, null)
-      })), null) # null = use instance_config defaults
+      })), null)
     }), {})
 
-    #---------------------------------------------------------------------------
-    # GPU-specific Configuration (only used by GPU workers)
-    #---------------------------------------------------------------------------
-
     gpu_config = optional(object({
-      # GPU identification
       gpu_type       = optional(string, "nvidia")
-      gpu_memory_min = optional(number, null) # Minimum GPU memory in GiB
+      gpu_memory_min = optional(number, null)
 
-      # GPU-specific ASG overrides
       gpu_asg_overrides = optional(object({
-        health_check_grace_period = optional(number, 600) # Longer for GPU driver initialization
-        min_healthy_percentage    = optional(number, 25)  # Lower due to high cost per instance
-        instance_warmup           = optional(number, 600) # Time for GPU drivers to load
-        spot_instance_pools       = optional(number, 2)   # Fewer pools but more predictable
+        health_check_grace_period = optional(number, 600)
+        min_healthy_percentage    = optional(number, 25)
+        instance_warmup           = optional(number, 600)
+        spot_instance_pools       = optional(number, 2)
       }), {})
 
-      # GPU-specific storage overrides (typically larger than CPU workers)
       gpu_storage_overrides = optional(object({
         block_device_mappings = optional(list(object({
           device_name           = string
@@ -351,43 +370,17 @@ variable "worker_config" {
           })), [
           {
             device_name           = "/dev/sda1"
-            volume_size           = 100 # Larger for GPU drivers, CUDA, ML frameworks
+            volume_size           = 100
             volume_type           = "gp3"
             delete_on_termination = true
             encrypted             = true
-            throughput            = 250 # Higher throughput for faster boot
+            throughput            = 250
           }
         ])
       }), {})
     }), {})
 
-    #---------------------------------------------------------------------------
-    # Additional Tags (applied to all worker resources)
-    #---------------------------------------------------------------------------
-
     additional_tags = optional(map(string), {})
   })
   default = {}
-
-  # Validations inside the worker_config variable block
-  # validation {
-  #   condition = (
-  #     self.use_instance_requirements == true ?
-  #     length(self.instance_types) == 0 :
-  #     true
-  #   )
-  #   error_message = "When use_instance_requirements is true, instance_types list should be empty."
-  # }
-  #
-  # validation {
-  #   condition = (
-  #     self.use_instance_requirements == false ?
-  #     length(self.instance_types) > 0 ||
-  #     (self.cpu_workers.on_demand_count + self.cpu_workers.spot_count +
-  #     self.gpu_workers.on_demand_count + self.gpu_workers.spot_count) == 0 :
-  #     true
-  #   )
-  #   error_message = "When use_instance_requirements is false, must specify at least one instance_type if creating workers."
-  # }
 }
-

@@ -75,6 +75,7 @@ variable "ssm_join_command_path" {
 variable "k8s_scripts_bucket_name" {
   description = "Name of the S3 bucket containing Kubernetes setup scripts"
   type        = string
+  default     = ""
 }
 
 #===============================================================================
@@ -157,6 +158,7 @@ variable "gpu_type" {
 variable "aws_ami" {
   description = "AMI ID for GPU worker instances"
   type        = string
+  default     = ""
 
   validation {
     condition     = can(regex("^ami-[0-9a-f]{8,}$", var.aws_ami))

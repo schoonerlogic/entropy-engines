@@ -108,6 +108,10 @@ locals {
 
   # Combined for upload
   all_cpu_worker_scripts = merge(local.shared_scripts, local.cpu_worker_scripts)
+
+  # Create hash triggers for local user_data scripts
+  scripts_as_string = jsonencode(local.cpu_worker_scripts)
+  s3_scripts_hash   = sha256(local.scripts_as_string)
 }
 
 # =================================================================
@@ -184,6 +188,8 @@ module "cpu_worker_base" {
   # CPU workers don't have GPU-specific settings
   gpu_type       = null
   gpu_memory_min = null
+
+  s3_scripts_hash = local.s3_scripts_hash
 
   # Ensure scripts are uploaded before infrastructure is created
   depends_on = [aws_s3_object.cpu_worker_scripts]

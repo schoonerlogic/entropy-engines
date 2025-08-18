@@ -5,17 +5,27 @@ set -euxo pipefail
 # =================================================================
 # CONFIGURATION
 # =================================================================
-readonly DOWNLOAD_DIR="$script_dir}"
-readonly LOG_DIR="$log_dir}"
-readonly MAIN_LOG="$LOG_DIR/entrypoint.log"
-readonly S3_BUCKET="$s3_bucket_name}"
-readonly NODE_TYPE="$node_type}"
+# readonly DOWNLOAD_DIR="${script_dir}"
+# readonly LOG_DIR="${log_dir}"
+readonly MAIN_LOG="${LOG_DIR}/entrypoint.log"
 readonly MAX_NETWORK_ATTEMPTS=30
 readonly MAX_APT_ATTEMPTS=20
 readonly AWS_CLI_TIMEOUT=180
 
 # Set DEBUG default to avoid unbound variable errors
 DEBUG=0
+
+# =================================================================
+# ENVIRONMENT SETUP
+# =================================================================
+mkdir -p ${DOWNLOAD_DIR}
+ENV_FILE="${DOWNLOAD_DIR}/k8s.env"
+if [ -f "$ENV_FILE" ]: then
+  source "ENV_FILE"
+else
+  echo "ERROR: Environment file $ENV_FILE not found."
+  exit 1
+fi 
 
 # =================================================================
 # LOGGING SETUP
@@ -182,64 +192,7 @@ install_aws_cli() {
     return 1
 }
 
-# =================================================================
-# SCRIPT DOWNLOAD AND VALIDATION
-# =================================================================
-download_and_validate_scripts() {
-    echo "=== Downloading Scripts from S3 ==="
-    
-    mkdir -p "$DOWNLOAD_DIR"
-    
-    # Download with retries
-    local download_attempts=3
-    local attempt
-    for attempt in $(seq 1 $download_attempts); do
-        echo "Download attempt $attempt/$download_attempts..."
-        
-        if aws s3 cp "s3://$S3_BUCKET/scripts/$NODE_TYPE" "$DOWNLOAD_DIR/" \
-           --recursive --quiet; then
-            echo "✓ Scripts downloaded successfully"
-            break
-        fi
-
-        
-        if [ $attempt -eq $download_attempts ]; then
-            echo "ERROR: Failed to download scripts after $download_attempts attempts"
-            return 1
-        fi
-        
-        echo "Download failed, retrying in $((attempt * 10)) seconds..."
-        sleep $((attempt * 10))
-    done
-    
-    # Validate downloaded scripts
-    echo "=== Validating Downloaded Scripts ==="
-    
-    if [ ! -d "$DOWNLOAD_DIR" ] || [ -z "$(ls -A "$DOWNLOAD_DIR"/*.sh 2>/dev/null)" ]; then
-        echo "ERROR: No scripts found in $DOWNLOAD_DIR"
-        return 1
-    fi
-    
-    # Check for required files using simple approach
-    if [ ! -f "$DOWNLOAD_DIR/00-shared-functions.sh" ]; then
-        echo "ERROR: Required file missing: 00-shared-functions.sh"
-        return 1
-    fi
-    
-    if [ ! -f "$DOWNLOAD_DIR/k8s-setup-main.sh" ]; then
-        echo "ERROR: Required file missing: k8s-setup-main.sh"
-        return 1
-    fi
-    
-    # Make all scripts executable
-    chmod +x "$DOWNLOAD_DIR"/*.sh
-    
-    echo "✓ Script validation completed"
-    echo "Available scripts:"
-    ls -la "$DOWNLOAD_DIR"/*.sh
-}
-
-# =================================================================
+## =================================================================
 # SCRIPT EXECUTION (Integrated with shared functions)
 # =================================================================
 execute_setup_scripts() {

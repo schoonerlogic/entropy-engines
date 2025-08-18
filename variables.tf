@@ -144,6 +144,7 @@ variable "instance_config" {
 variable "aws_ami" {
   description = "Base AMI ID to use for worker instances"
   type        = string
+  default     = ""
 }
 
 
@@ -406,36 +407,31 @@ variable "worker_config" {
 variable "pod_cidr_block" {
   description = "CIDR block for Kubernetes pods"
   type        = string
+  default     = ""
 }
 
 variable "service_cidr_block" {
   description = "CIDR block for Kubernetes services"
   type        = string
+  default     = ""
 }
 
 variable "subnet_ids" {
   description = "List of subnet IDs where GPU workers will be launched"
   type        = list(string)
-
-  validation {
-    condition     = length(var.subnet_ids) > 0
-    error_message = "At least one subnet ID must be provided."
-  }
+  default     = []
 }
 
 variable "security_group_ids" {
   description = "List of security group IDs for GPU workers"
   type        = list(string)
-
-  validation {
-    condition     = length(var.security_group_ids) > 0
-    error_message = "At least one security group ID must be provided."
-  }
+  default     = []
 }
 
 variable "k8s_scripts_bucket_name" {
   description = "Name of the S3 bucket for bootstrap"
   type        = string
+  default     = ""
 }
 
 # Role names

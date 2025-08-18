@@ -1,0 +1,183 @@
+#!/bin/bash
+
+DOWNLOAD_DIR=${download_dir}
+S3_BUCKET=${s3_bucket}
+NODE_TYPE=${node_type}
+
+
+# =================================================================
+#  ENVIRONMENT FILES DOWNLOAD AND VALIDATION
+# =================================================================
+download_and_validate_evironmets() {
+    echo "=== Downloading Enviroment files from S3 ==="
+    
+    ENV_DIR="$DOWNLOAD_DIR/k8s-env"
+    
+    mkdir $ENV_DIR
+
+    # Download with retries local download_attempts=3
+    local download_attempts=3
+    local attempt
+    for attempt in $(seq 1 $download_attempts; do
+        echo "Download attempt $attempt/$download_attempts..."
+        
+        if aws s3 cp "s3://$S3_BUCKET/scripts/$NODE_TYPE" "$ENV_DIR" \
+          --recursive --quiet; then
+            echo "✓ Envronment files downloaded successfully"
+            break
+        fi
+        
+        if [ $attempt -eq $download_attempts ]; then
+            echo "ERROR: Failed to download environments after $download_attempts attempts"
+            return 1
+        fi
+        
+        echo "Download failed, retrying in $((attempt * 10)) seconds..."
+        sleep $((attempt * 10))
+    done
+    
+    # Validate downloaded scripts
+    echo "=== Validating Downloaded Environment Files ==="
+    
+    if [ ! -d "$ENV_DIR" ] || [ -z "$(ls -A "$ENV_DIR"/*.sh )" ]; then
+        echo "ERROR: No scripts found in $ENV_DIR"
+        return 1
+    fi
+    
+    # Check for required files using simple approach
+    if [ ! -f "$ENV_DIR/00-shared-functions.env" ]; then
+        echo "ERROR: Required file missing: 00-shared-functions.env"
+        return 1
+    fi
+    
+    if [ ! -f "$ENV_DIR/k8s-setup-main.env" ]; then
+        echo "ERROR: Required file missing: k8s-setup-main.env"
+        return 1
+    fi
+    
+    # Source all script evvironments
+    for env_file in *.env; do
+      if [ -f "$env_file" ]; then
+        echo "Sourcing $env_file..."
+        set -a
+        source "$env_file"
+        set +a
+      fi
+    done
+    
+    echo "✓ Script Environment Completed"
+}
+
+ =================================================================
+# SCRIPT DOWNLOAD AND VALIDATION
+# =================================================================
+download_and_validate_scripts() {
+    echo "=== Downloading Scripts from S3 ==="
+    
+    SCRIPT_ENV="$DOWNLOAD_DIR"
+    if bash -c "source $SCRIPT_ENV && bash '$script_path'"; then
+    
+      # Download with retries
+      local download_attempts=3
+      local attempt
+      for attempt in $(seq 1 $download_attempts); do
+          echo "Download attempt $attempt/$download_attempts..."
+          
+          if aws s3 cp "s3://$S3_BUCKET/scripts/$NODE_TYPE" "$DOWNLOAD_DIR/" \
+            --recursive --quiet; then
+              echo "✓ Scripts downloaded successfully"
+              break
+          fi
+
+          
+          if [ $attempt -eq $download_attempts ]; then
+              echo "ERROR: Failed to download scripts after $download_attempts attempts"
+              return 1
+          fi
+          
+          echo "Download failed, retrying in $((attempt * 10)) seconds..."
+          sleep $((attempt * 10))
+      done
+      
+      # Validate downloaded scripts
+      echo "=== Validating Downloaded Scripts ==="
+      
+      if [ ! -d "$DOWNLOAD_DIR" ] || [ -z "$(ls -A "$DOWNLOAD_DIR"/*.sh 2>/dev/null)" ]; then
+          echo "ERROR: No scripts found in $DOWNLOAD_DIR"
+          return 1
+      fi
+      
+      # Check for required files using simple approach
+      if [ ! -f "$DOWNLOAD_DIR/00-shared-functions.sh" ]; then
+          echo "ERROR: Required file missing: 00-shared-functions.sh"
+          return 1
+      fi
+      
+      if [ ! -f "$DOWNLOAD_DIR/k8s-setup-main.sh" ]; then
+          echo "ERROR: Required file missing: k8s-setup-main.sh"
+          return 1
+      fi
+      
+      # Make all scripts executable
+      chmod +x "$DOWNLOAD_DIR"/*.sh
+      
+      echo "✓ Script validation completed"
+      echo "Available scripts:"
+      ls -la "$DOWNLOAD_DIR"/*.sh
+
+    fi
+}
+
+## =================================================================
+# SCRIPT EXECUTION (Integrated with shared functions)
+# =================================================================
+execute_setup_scripts() {
+    echo "=== Executing Setup Scripts ==="
+    
+    # Set environment variables for the scripts
+    export SCRIPT_EXECUTION_MODE="entrypoint"
+    
+    # Execute the main orchestrator script
+    local entry_script="$DOWNLOAD_DIR/entrypoint.sh"
+    
+    if [ -f "$entry_script" ]; then
+        echo "Starting main setup script: $entry_script"
+        
+        if "$entry_script"; then
+            echo "✓ Setup completed successfully"
+            return 0
+        else
+            local exit_code=$?
+            echo "✗ Setup script failed with exit code $exit_code"
+            return 1
+        fi
+    else
+        echo "ERROR: Entry setup script not found: $entry_script"
+        return 1
+    fi
+}
+
+# =================================================================
+# MAIN EXECUTION
+# =================================================================
+main() {
+
+ if ! download_and_validate_environments; then
+      echo "FATAL: Environment download/validation failed"
+      exit 1
+ fi
+    
+ if ! download_and_validate_scripts; then
+      echo "FATAL: Script download/validation failed"
+      exit 1
+ fi
+    
+ if ! execute_setup_scripts; then
+      echo "FATAL: Setup execution failed"
+      exit 1
+ fi
+
+
+
+
+

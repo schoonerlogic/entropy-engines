@@ -21,53 +21,6 @@ output "public_subnet_ids" {
   value       = module.aws_infrastructure.public_subnet_ids
 }
 
-# # Node IP Addresses
-# output "control_plane_private_ips" {
-#   description = "Private IP addresses of control plane nodes"
-#   value       = module.agent_nodes.control_plane_private_ips
-# }
-#
-# output "cpu_worker_private_ips" {
-#   description = "Private IP addresses of CPU worker nodes"
-#   value       = module.agent_nodes.cpu_worker_private_ips
-# }
-#
-# output "gpu_worker_private_ips" {
-#   description = "Private IP addresses of GPU worker nodes"
-#   value       = module.agent_nodes.gpu_worker_private_ips
-# }
-#
-# output "control_plane_public_ips" {
-#   description = "Public IP addresses of control plane nodes"
-#   value       = module.agent_nodes.control_plane_public_ips
-# }
-#
-# output "cpu_worker_public_ips" {
-#   description = "Public IP addresses of CPU worker nodes"
-#   value       = module.agent_nodes.cpu_worker_public_ips
-# }
-#
-# output "gpu_worker_public_ips" {
-#   description = "Public IP addresses of GPU worker nodes"
-#   value       = module.agent_nodes.gpu_worker_public_ips
-# }
-#
-# # NATS Configuration
-# output "nats_endpoint" {
-#   description = "NATS messaging endpoint"
-#   value       = module.nats_messaging.nats_endpoint
-# }
-#
-# output "nats_client_url" {
-#   description = "NATS client connection URL"
-#   value       = module.nats_messaging.nats_client_url
-# }
-#
-# output "nats_private_ips" {
-#   description = "Private IP addresses of NATS servers"
-#   value       = module.nats_messaging.nats_private_ips
-# }
-#
 # Bastion Host
 output "bastion_public_ip" {
   description = "Public IP address of bastion host"
@@ -114,13 +67,3 @@ output "k8s_scripts_bucket" {
   sensitive   = false
 }
 
-
-output "ssm_join_command_path" {
-  description = "SSM parameter path for worker join command"
-  value       = module.controllers.ssm_join_command_path
-}
-
-output "ssm_certificate_key_path" {
-  description = "SSM parameter path for certificate key"
-  value       = module.controllers.ssm_certificate_key_path
-}

@@ -125,6 +125,10 @@ locals {
   }
 
   all_gpu_worker_scripts = merge(local.shared_scripts, local.gpu_worker_scripts)
+
+  # Create hash triggers for local user_data scripts
+  scripts_as_string = jsonencode(local.gpu_worker_scripts)
+  s3_scripts_hash   = sha256(local.scripts_as_string)
 }
 
 # =================================================================
@@ -201,7 +205,7 @@ module "gpu_worker_base" {
   gpu_type       = null
   gpu_memory_min = null
 
-  script_dependencies = aws_s3_object.gpu_worker_scripts
+  s3_scripts_hash = local.s3_scripts_hash
 
   # Ensure scripts are uploaded before infrastructure is created
   depends_on = [aws_s3_object.gpu_worker_scripts]

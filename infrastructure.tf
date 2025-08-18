@@ -86,6 +86,6 @@ module "aws_infrastructure" {
   k8s_major_minor_stream = var.kubernetes_config.k8s_major_minor_stream
   k8s_full_patch_version = var.kubernetes_config.k8s_full_patch_version
   k8s_apt_package_suffix = var.kubernetes_config.k8s_apt_package_suffix
-  enable_gpu_nodes       = var.kubernetes_config.enable_gpu_nodes
-  nats_ports             = var.kubernetes_config.nats_ports
+  #enable_gpu_nodes       = var.kubernetes_config.enable_gpu_nodes
+  nats_ports = var.kubernetes_config.nats_ports
 }

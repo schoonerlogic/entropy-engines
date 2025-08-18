@@ -15,8 +15,8 @@ DEBUG=0
 echo "DEBUG: script_dir resolved to: $script_dir}"
 
 # Load shared functions
-if [ -f "$$SCRIPT_DIR}/00-shared-functions.sh" ]; then
-    source "$$SCRIPT_DIR}/00-shared-functions.sh"
+if [ -f "${SCRIPT_DIR}/00-shared-functions.sh" ]; then
+    source "${SCRIPT_DIR}/00-shared-functions.sh"
     
     # Explicitly setup logging with this script's name
     setup_logging "k8s-setup-main"
@@ -29,9 +29,9 @@ if [ -f "$$SCRIPT_DIR}/00-shared-functions.sh" ]; then
         exit 1
     fi
 else
-    echo "ERROR: Cannot find shared functions file: $$SCRIPT_DIR}/00-shared-functions.sh"
+    echo "ERROR: Cannot find shared functions file: ${SCRIPT_DIR}/00-shared-functions.sh"
     echo "Current directory contents:"
-    ls -la "$$SCRIPT_DIR}/" || echo "Directory does not exist"
+    ls -la "${SCRIPT_DIR}/" || echo "Directory does not exist"
     exit 1
 fi
 
@@ -57,8 +57,8 @@ SCRIPTS=(
 )
 
 # Execute scripts in sequence
-for script in "$$SCRIPTS[@]}"; do
-    script_path="$$SCRIPT_DIR}/$script"
+for script in "${SCRIPTS[@]}"; do
+    script_path="${SCRIPT_DIR}/$script"
     
     if [ -f "$script_path" ]; then
         log_info "Starting script: $script"

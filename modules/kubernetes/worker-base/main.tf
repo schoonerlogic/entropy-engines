@@ -41,8 +41,10 @@ locals {
   subnet_ids = var.subnet_ids
 
   # Security configuration
-  ssh_key_name       = var.ssh_key_name
   security_group_ids = var.security_group_ids
+
+  # Passed in for triggering updates
+  s3_scripts_hash = var.s3_scripts_hash
 
   # Calculated values
   total_instance_count = local.on_demand_count + local.spot_count
@@ -54,6 +56,15 @@ locals {
     NodeType    = "${var.worker_type}-worker"
     ManagedBy   = "terraform"
   })
+}
+
+# Create trigger resource that changes when scripts change
+resource "random_id" "script_trigger" {
+  byte_length = 4
+
+  keepers = {
+    s3_scripts_hash = local.s3_scripts_hash
+  }
 }
 
 #===============================================================================
@@ -85,8 +96,7 @@ resource "aws_launch_template" "worker_lt" {
   description = "Launch template for ${var.cluster_name} ${var.worker_type} workers"
 
   # Instance configuration
-  image_id = var.base_aws_ami
-  key_name = var.ssh_key_name
+  image_id = var.aws_ami
 
   # User data with script dependencies hash
   user_data = base64encode(templatefile("${path.module}/templates/user_data.sh.tftpl", {
@@ -156,6 +166,10 @@ resource "aws_launch_template" "worker_lt" {
 
   lifecycle {
     create_before_destroy = true
+    # revisit this, way too broad
+    replace_triggered_by = [
+      random_id.script_trigger
+    ]
   }
 }
 

@@ -150,11 +150,6 @@ output "security_group_ids" {
   value       = var.security_group_ids
 }
 
-output "ssh_key_name" {
-  description = "SSH key name for CPU worker access"
-  value       = var.ssh_key_name
-}
-
 #===============================================================================
 # Script Management Outputs
 #===============================================================================
@@ -236,10 +231,6 @@ output "worker_tag_value" {
   value       = module.cpu_worker_base.worker_tag_value
 }
 
-output "common_tags" {
-  description = "Common tags applied to CPU worker resources"
-  value       = local.common_tags
-}
 
 #===============================================================================
 # Advanced Configuration Outputs
@@ -247,7 +238,7 @@ output "common_tags" {
 
 output "ami_id" {
   description = "AMI ID used for CPU worker instances"
-  value       = var.base_aws_ami
+  value       = var.aws_ami
 }
 
 output "block_device_mappings" {

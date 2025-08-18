@@ -42,6 +42,9 @@ locals {
 
   # Script selection
   scripts_bucket_name = var.k8s_scripts_bucket_name
+  script_dir          = "/opt/k8s-setup-scripts"
+  log_dir             = "/var/log/tf-provisioning"
+  log_level           = var.log_level
 
   # Script selection
   control_plane_bootstrap_script     = "control-plane-bootstrap.sh"
@@ -56,7 +59,7 @@ locals {
 }
 
 #===============================================================================
-# Data Sourcesu
+# Data Sources
 #===============================================================================
 
 # Get current AWS account and region
@@ -67,38 +70,45 @@ data "aws_region" "current" {}
 #===============================================================================
 
 locals {
-  # Script base path
+  # setup the initial environment to source for bash script variables
+  setup_environment = {
+    download_dir = local.log_dir
+    s3_bucket    = local.scripts_bucket_name
+    node_type    = "controllers"
+  }
+
+  # script base path
   script_base_path = "${path.module}/../s3-setup-scripts"
+  script_env_path  = "${path.module}/../s3-env-templates"
 
   # shared_functions 
   shared_functions_vars = {
-    log_dir   = "/var/log/provisioning"
-    log_level = var.log_level
+    log_dir   = local.log_dir
+    log_level = local.log_level
   }
 
   # entrypoint_vars 
   entrypoint_vars = {
-    s3_bucket_name = local.scripts_bucket_name
-    node_type      = "controllers"
-    log_dir        = "/var/log/provisioning"
-    script_dir     = "/tmp/k8s_scripts"
+    log_dir    = local.log_dir
+    script_dir = local.script_dir
   }
 
   # k8s_setup_main_vars
   k8s_setup_main_vars = {
-    script_dir = "/tmp/k8s_scripts"
+    script_dir = local.script_dir
   }
 
-  # Shared template variables
-  shared_template_vars = {
+  # Shared script variables
+  shared_env_vars = {
+    cluster_name               = local.cluster_name
     k8s_user                   = local.k8s_user
     k8s_major_minor_stream     = local.k8s_major_minor_stream
     k8s_package_version_string = local.k8s_package_version_string
-    script_dir                 = "/tmp/k8s_scripts"
+    script_dir                 = local.script_dir
   }
 
-  # Controller-specific template variables
-  controller_template_vars = merge(local.shared_template_vars, {
+  # Controller-specific script variables
+  install_kubernetes_vars = merge(local.shared_env_vars, {
     cluster_name             = local.cluster_name
     k8s_full_patch_version   = local.k8s_full_patch_version
     pod_cidr_block           = local.pod_cidr_block
@@ -108,59 +118,91 @@ locals {
     aws_region               = data.aws_region.current.name
     bucket_name              = local.scripts_bucket_name
     wait_interval            = 15
-    script_dir               = "/tmp/k8s_scripts"
+    script_dir               = local.script_dir
   })
 
   # Shared scripts (used by controllers)
   shared_scripts = {
     "00-shared-functions" = {
-      script_path = "${local.script_base_path}/shared/00-shared-functions.sh"
-      vars        = local.shared_functions_vars
-      s3_key      = "scripts/controllers/00-shared-functions.sh"
+      script_path   = "${local.script_base_path}/shared/00-shared-functions.sh"
+      env_path      = "${local.script_env_path}/shared/00-shared-functions.env.tftpl"
+      vars          = local.shared_functions_vars
+      s3_script_key = "scripts/shared/00-shared-functions.sh"
+      s3_env_key    = "scripts/shared/00-shared-functions.env.tftpl"
     }
     "001-ec2-metadata-lib" = {
-      script_path = "${local.script_base_path}/shared/001-ec2-metadata-lib.sh"
-      vars        = {}
-      s3_key      = "scripts/controllers/001-ec2-metadata-lib.sh"
+      script_path   = "${local.script_base_path}/shared/001-ec2-metadata-lib.sh"
+      env_path      = "${local.script_env_path}/shared/001-ec2-metadata-lib.env.tftpl"
+      vars          = {}
+      s3_script_key = "scripts/shared/001-ec2-metadata-lib.sh"
+      s3_env_key    = "scripts/shared/001-ec2-metadata-lib.env.tftpl"
     }
     "01-install-user-and-tooling" = {
-      script_path = "${local.script_base_path}/shared/01-install-user-and-tooling.sh"
-      vars        = local.shared_template_vars
-      s3_key      = "scri/controllerpts/controllers/01-install-user-and-tooling.sh"
+      script_path   = "${local.script_base_path}/shared/01-install-user-and-tooling.sh"
+      env_path      = "${local.script_env_path}/shared/01-install-user-and-tooling.env.tftpl"
+      vars          = local.shared_env_vars
+      s3_script_key = "scripts/shared/01-install-user-and-tooling.sh"
+      s3_env_key    = "scripts/shared/01-install-user-and-tooling.env.tftpl"
     }
+    # passed as user_data but downloaded from s3 for reference
     "entrypoint" = {
-      script_path = "${local.script_base_path}/shared/entrypoint.sh"
-      vars        = local.entrypoint_vars
-      s3_key      = "scripts/controllers/entrypoint.sh"
+      script_path   = "${local.script_base_path}/shared/entrypoint.sh"
+      env_path      = "${local.script_env_path}/shared/entrypoint.env.tftpl"
+      vars          = local.entrypoint_vars
+      s3_script_key = "script/shared/entrypoint.sh"
+      s3_env_key    = "scripts/shared/entrypoint.env.tftpl"
     }
   }
 
   # Controller-specific scripts
   controller_scripts = {
     "k8s-setup-main" = {
-      script_path = "${local.script_base_path}/controllers/k8s-setup-main.sh"
-      vars        = local.k8s_setup_main_vars
-      s3_key      = "scripts/controllers/k8s-setup-main.sh"
+      script_path   = "${local.script_base_path}/controllers/k8s-setup-main.sh"
+      env_path      = "${local.script_env_path}/controllers/k8s-setup-main.env.tftpl"
+      vars          = local.k8s_setup_main_vars
+      s3_script_key = "scripts/controllers/k8s-setup-main.sh"
+      s3_env_key    = "scripts/controllers/k8s-setup-main.env.tftpl"
     }
     "02-install-kubernetes" = {
-      script_path = "${local.script_base_path}/controllers/02-install-kubernetes.sh"
-      vars        = local.controller_template_vars
-      s3_key      = "scripts/controllers/02-install-kubernetes.sh"
+      script_path   = "${local.script_base_path}/controllers/02-install-kubernetes.sh"
+      env_path      = "${local.script_env_path}/controllers/02-install-kubernetes.env.tftpl"
+      vars          = local.install_kubernetes_vars
+      s3_script_key = "scripts/controllers/02-install-kubernetes.sh"
+      s3_env_key    = "scripts/controllers/02-install-kubernetes.env.tftpl"
     }
     "03-install-cni" = {
-      script_path = "${local.script_base_path}/controllers/04-install-cni.sh"
-      vars        = local.controller_template_vars
-      s3_key      = "scripts/controllers/04-install-cni.sh"
+      script_path   = "${local.script_base_path}/controllers/04-install-cni.sh"
+      env_path      = "${local.script_env_path}/controllers/04-install-cni.env.tftpl"
+      vars          = local.shared_env_vars
+      s3_script_key = "scripts/controllers/04-install-cni.sh"
+      s3_env_key    = "scripts/controllers/04-install-cni.env.tftpl"
     }
     "04-install-addons" = {
-      script_path = "${local.script_base_path}/controllers/05-install-addons.sh"
-      vars        = local.controller_template_vars
-      s3_key      = "scripts/controllers/05-install-addons.sh"
+      script_path   = "${local.script_base_path}/controllers/05-install-addons.sh"
+      env_path      = "${local.script_env_path}/controllers/05-install-addons.env.tftpl"
+      vars          = local.shared_env_vars
+      s3_script_key = "scripts/controllers/05-install-addons.sh"
+      s3_env_key    = "scripts/controllers/05-install-addons.env.tftpl"
     }
   }
 
+  setup_environment_template = "${local.script_base_path}/shared/setup-environment.sh.tftpl"
+
   # Combined for upload
   all_controller_scripts = merge(local.shared_scripts, local.controller_scripts)
+
+  # Create hash triggers for local user_data scripts
+  scripts_as_string = jsonencode(local.all_controller_scripts)
+  s3_scripts_hash   = sha256(local.scripts_as_string)
+}
+
+# Create trigger resource that changes when scripts change
+resource "random_id" "script_trigger" {
+  byte_length = 4
+
+  keepers = {
+    s3_scripts_hash = local.s3_scripts_hash
+  }
 }
 
 # Upload controller scripts
@@ -168,29 +210,28 @@ resource "aws_s3_object" "controller_scripts" {
   for_each = local.all_controller_scripts
 
   bucket  = local.scripts_bucket_name
-  key     = each.value.s3_key
+  key     = each.value.s3_script_key
   content = file(each.value.script_path)
 
-  content_type = "text/plain"
+  content_type = "text/x-shellscript"
 
   etag = filemd5(each.value.script_path)
 
   tags = merge(local.common_tags, {
-    Type = "controller-script"
+    Type = "controller-scripts"
   })
-
 }
 
 # Upload env files
 resource "aws_s3_object" "controller_env_files" {
-  for_each = local.all_env_files
+  for_each = local.all_controller_scripts
 
   bucket  = local.scripts_bucket_name
-  key     = each.value.s3_key
-  content = each.value.content
+  key     = each.value.s3_env_key
+  content = templatefile(each.value.env_path, each.value.vars)
 
   content_type = "text/plain"
-  etag         = md5(each.value.content)
+  etag         = md5(each.value.env_path)
 
   tags = merge(local.common_tags, {
     Type = "env-vars"
@@ -222,17 +263,7 @@ resource "aws_launch_template" "controller_lt" {
   image_id = local.aws_ami
 
   # User data with script dependencies hash
-  user_data = base64encode(
-    local.shared_scripts.entrypoint.script_path,
-    merge(local.shared_scripts.entrypoint.vars, {
-      # Force new template when scripts change
-      scripts_hash = var.script_dependencies != {} ? md5(jsonencode([
-        for k, v in var.script_dependencies : v.etag
-        ])) : md5(jsonencode([
-        for k, v in aws_s3_object.controller_scripts : v.etag
-      ]))
-    })
-  )
+  user_data = base64encode(templatefile(local.setup_environment_template, local.setup_environment))
 
   iam_instance_profile {
     name = aws_iam_instance_profile.controller_profile.name
@@ -287,6 +318,9 @@ resource "aws_launch_template" "controller_lt" {
 
   lifecycle {
     create_before_destroy = true
+    replace_triggered_by = [
+      random_id.script_trigger
+    ]
   }
 }
 

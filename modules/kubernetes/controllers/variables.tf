@@ -50,6 +50,7 @@ variable "instance_types" {
 variable "aws_ami" {
   description = "AMI ID for controller instances"
   type        = string
+  default     = ""
 }
 
 #===============================================================================
@@ -89,11 +90,13 @@ variable "k8s_package_version_string" {
 variable "pod_cidr_block" {
   description = "CIDR block for Kubernetes pods"
   type        = string
+  default     = ""
 }
 
 variable "service_cidr_block" {
   description = "CIDR block for Kubernetes services"
   type        = string
+  default     = ""
 }
 
 #===============================================================================
@@ -127,6 +130,7 @@ variable "control_plane_role_name" {
 variable "k8s_scripts_bucket_name" {
   description = "Name of the S3 bucket containing bootstrap scripts"
   type        = string
+  default     = ""
 }
 
 variable "script_dependencies" {
