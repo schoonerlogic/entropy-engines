@@ -5,7 +5,6 @@
 # =================================================================
 # SHARED FUNCTIONS INTEGRATION
 # =================================================================
-SCRIPT_DIR="$script_dir}"
 
 # load shared functions
 if [ -f "${SCRIPT_DIR}/00-shared-functions.sh" ]; then
@@ -21,7 +20,7 @@ if [ -f "${SCRIPT_DIR}/00-shared-functions.sh" ]; then
 else
     echo "ERROR: Cannot find shared functions file: ${SCRIPT_DIR}/00-shared-functions.sh"
     exit 1
-fi 
+fi
 
 setup_logging "install-kubernetes"
 
@@ -38,7 +37,7 @@ fi
 # SHARED EC2 METADATA
 # =================================================================
 source "${SCRIPT_DIR}/001-ec2-metadata-lib.sh"
-ec2_ensure_metadata || exit 1
+ec2_init_metadata || exit 1
 
 # Initialize metadata (will cache for other scripts)
 if ! ec2_init_metadata; then
@@ -49,17 +48,11 @@ fi
 # =================================================================
 # CONFIGURATION VARIABLES (from Terraform)
 # =================================================================
-readonly CLUSTER_NAME=$cluster_name}
-readonly K8S_VERSION=$k8s_full_patch_version}
-readonly POD_CIDR_BLOCK=$pod_cidr_block}
-readonly SERVICE_CIDR_BLOCK=$service_cidr_block}
-readonly SSM_JOIN_COMMAND_PATH=$ssm_join_command_path}
-readonly SSM_CERTIFICATE_KEY_PATH=$ssm_certificate_key_path}
 readonly PRIMARY_PARAM="/k8s/${CLUSTER_NAME}/primary-controller"
 
 log_info "=== Control Plane Configuration Started ==="
 log_info "Cluster Name: ${CLUSTER_NAME}"
-log_info "Kubernetes Version: ${K8S_VERSION}"
+log_info "Kubernetes Version: ${K8S_FULL_PATCH_VERSION}"
 log_info "Pod CIDR: ${POD_CIDR_BLOCK}"
 log_info "Service CIDR: ${SERVICE_CIDR_BLOCK}"
 
@@ -83,9 +76,9 @@ determine_controller_role() {
     fi
     
     # Determine role based on existing primary
-    if [ "${existing_primary}" = "UNASSIGNED" ] || [ "${existing_primary}" = "None" ] || [ $-z "${existing_primary}" ]; then
+    if [ "${existing_primary}" = "UNASSIGNED" ] || [ "${existing_primary}" = "None" ] || [ -z "${existing_primary}" ]; then
         log_info "Attempting to claim primary controller role..."
-               %
+        
         # Attempt to claim primary role
         if aws ssm put-parameter --name "${PRIMARY_PARAM}" \
              --value "${INSTANCE_IP}" \
@@ -137,7 +130,7 @@ nodeRegistration:
 ---
 apiVersion: kubeadm.k8s.io/v1beta3
 kind: ClusterConfiguration
-kubernetesVersion: ${K8S_VERSION}
+kubernetesVersion: ${K8S_FULL_PATCH_VERSION}
 clusterName: ${CLUSTER_NAME}
 controlPlaneEndpoint: ${INSTANCE_IP}:6443
 apiServer:
@@ -325,7 +318,7 @@ join_secondary_controller() {
         fi
         
         if [ $attempt -eq $max_attempts ]; then
-            log_error "Timeout waiting for join parameters after ${((max_attempts * wait_interval)) seconds"
+            log_error "Timeout waiting for join parameters after $((max_attempts * wait_interval)) seconds"
             return 1
         fi
         
@@ -338,7 +331,7 @@ join_secondary_controller() {
     join_args=$(echo "${join_cmd}" | sed 's/kubeadm join //')
     
     log_info "Joining cluster as control plane node..."
-    log_info "Join target: $(echo $join_args | awk '{print ${1}')"
+    log_info "Join target: $(echo $join_args | awk '{print $1}')"
     
     # Perform the join operation
     if kubeadm join $join_args --control-plane --certificate-key "${cert_key}" --v=5; then
@@ -384,7 +377,7 @@ validate_cluster() {
     log_info "Node status:"
     if kubectl get nodes >/dev/null 2>&1; then
         kubectl get nodes -o wide | while IFS= read -r line; do
-            log_info "  ${line"
+            log_info "  ${line}"
         done
     else
         log_warn "Could not retrieve node status"
@@ -394,7 +387,7 @@ validate_cluster() {
     log_info "System pods status:"
     if kubectl get pods -n kube-system >/dev/null 2>&1; then
         kubectl get pods -n kube-system | while IFS= read -r line; do
-            log_info "  ${line"
+            log_info "  ${line}"
         done
     else
         log_warn "Could not retrieve system pods status"

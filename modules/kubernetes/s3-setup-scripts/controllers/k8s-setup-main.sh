@@ -7,12 +7,11 @@ echo "=== Kubernetes Setup Started at $(date) ==="
 # =================================================================
 # SHARED FUNCTIONS INTEGRATION  
 # =================================================================
-SCRIPT_DIR="$script_dir}"
 
 # Set DEBUG default to avoid unbound variable errors
 DEBUG=0
 
-echo "DEBUG: script_dir resolved to: $script_dir}"
+echo "DEBUG: script_dir resolved to: ${SCRIPT_DIR}"
 
 # Load shared functions
 if [ -f "${SCRIPT_DIR}/00-shared-functions.sh" ]; then

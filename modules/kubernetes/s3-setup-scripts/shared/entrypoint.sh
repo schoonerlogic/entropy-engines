@@ -5,8 +5,6 @@ set -euxo pipefail
 # =================================================================
 # CONFIGURATION
 # =================================================================
-# readonly DOWNLOAD_DIR="${script_dir}"
-# readonly LOG_DIR="${log_dir}"
 readonly MAIN_LOG="${LOG_DIR}/entrypoint.log"
 readonly MAX_NETWORK_ATTEMPTS=30
 readonly MAX_APT_ATTEMPTS=20
@@ -16,31 +14,17 @@ readonly AWS_CLI_TIMEOUT=180
 DEBUG=0
 
 # =================================================================
-# ENVIRONMENT SETUP
-# =================================================================
-mkdir -p ${DOWNLOAD_DIR}
-ENV_FILE="${DOWNLOAD_DIR}/k8s.env"
-if [ -f "$ENV_FILE" ]: then
-  source "ENV_FILE"
-else
-  echo "ERROR: Environment file $ENV_FILE not found."
-  exit 1
-fi 
-
-# =================================================================
 # LOGGING SETUP
 # =================================================================
 setup_entrypoint_logging() {
-    mkdir -p "$LOG_DIR"
-    chown "$(whoami)" "$LOG_DIR" 2>/dev/null || true
+    mkdir -p "${LOG_DIR}"
+    chown "$(whoami)" "${LOG_DIR}" 2>/dev/null || true
     
     # Setup log redirection (safer method)
     exec > >(tee -a "$MAIN_LOG") 2>&1
     
     echo "=== Entrypoint started at $(date) ==="
-    echo "S3 Bucket: $S3_BUCKET"
-    echo "Download Dir: $DOWNLOAD_DIR"
-    echo "Log Dir: $LOG_DIR"
+    echo "Log Dir: ${LOG_DIR}"
 }
 
 # =================================================================
@@ -202,7 +186,7 @@ execute_setup_scripts() {
     export SCRIPT_EXECUTION_MODE="entrypoint"
     
     # Execute the main orchestrator script
-    local main_script="$DOWNLOAD_DIR/k8s-setup-main.sh"
+    local main_script="${SCRIPT_DIR}/k8s-setup-main.sh"
     
     if [ -f "$main_script" ]; then
         echo "Starting main setup script: $main_script"
@@ -238,7 +222,6 @@ cleanup_on_error() {
     ps aux | head -20 || true
     
     # Don't cleanup download dir on error for debugging
-    echo "Scripts preserved in $DOWNLOAD_DIR for debugging"
     
     exit $exit_code
 }
@@ -260,11 +243,6 @@ main() {
     
     if ! install_aws_cli; then
         echo "FATAL: AWS CLI installation failed"
-        exit 1
-    fi
-    
-    if ! download_and_validate_scripts; then
-        echo "FATAL: Script download/validation failed"
         exit 1
     fi
     

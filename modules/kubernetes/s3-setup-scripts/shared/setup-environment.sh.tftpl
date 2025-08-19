@@ -7,11 +7,10 @@ set -e
 # VARIABLES
 # These variables are expected to be interpolated by Terraform's templatefile function.
 # =================================================================
-DOWNLOAD_DIR="${download_dir}"
 S3_BUCKET="${s3_bucket}"
 NODE_TYPE="${node_type}"
+SCRIPT_DIR="${script_dir}"
 
-echo "$DOWNLOAD_DIR: $DOWNLOAD_DIR"
 echo "$S3_BUCKET: $S3_BUCKET"
 echo "$NODE_TYPE: $NODE_TYPE"
 
@@ -21,11 +20,9 @@ echo "$NODE_TYPE: $NODE_TYPE"
 download_and_validate_environments() {
     echo "=== Downloading Environment files from S3 ==="
     
-    local ENV_DIR="$DOWNLOAD_DIR"
-    
     # Create the directory path if it doesn't exist
-    mkdir -p "$ENV_DIR"
-    echo "Created $ENV_DIR"
+    mkdir -p "$${SCRIPT_DIR}"
+    echo "Created SCRIPT_DIR: $${SCRIPT_DIR}"
 
     # Download with retries
     local download_attempts=3
@@ -34,11 +31,11 @@ download_and_validate_environments() {
         echo "Download attempt $attempt/$download_attempts..."
         
         # Attempt to copy files from S3
-        if aws s3 cp "s3://$S3_BUCKET/scripts/$NODE_TYPE/" "$ENV_DIR/" --recursive --quiet; then
+        if aws s3 cp "s3://$S3_BUCKET/scripts/$NODE_TYPE/" "$${SCRIPT_DIR}/" --recursive --quiet; then
             echo "Environment files downloaded successfully"
         fi
 
-        if aws s3 cp "s3://$S3_BUCKET/scripts/shared/" "$ENV_DIR/" --recursive --quiet; then
+        if aws s3 cp "s3://$S3_BUCKET/scripts/shared/" "$${SCRIPT_DIR}/" --recursive --quiet; then
             echo "Script files downloaded successfully"
             break
         fi
@@ -57,25 +54,29 @@ download_and_validate_environments() {
     echo "=== Validating Downloaded Environment Files ==="
     
     # Check if the directory is empty or doesn't contain .env files
-    if [ ! -d "$ENV_DIR" ] || [ -z "$(ls -A "$ENV_DIR"/*.env 2>/dev/null)" ]; then
-        echo "ERROR: No .env files found in $ENV_DIR"
+    if [ ! -d "$${SCRIPT_DIR}" ] || [ -z "$(ls -A "$${SCRIPT_DIR}"/*.env 2>/dev/null)" ]; then
+        echo "ERROR: No .env files found in $${SCRIPT_DIR}"
         return 1
     fi
     
     # Check for required files
-    if [ ! -f "$ENV_DIR/00-shared-functions.env" ]; then
+    if [ ! -f "$${SCRIPT_DIR}/00-shared-functions.env" ]; then
         echo "ERROR: Required file missing: 00-shared-functions.env"
         return 1
     fi
     
-    if [ ! -f "$ENV_DIR/k8s-setup-main.env" ]; then
+    if [ ! -f "$${SCRIPT_DIR}/k8s-setup-main.env" ]; then
         echo "ERROR: Required file missing: k8s-setup-main.env"
         return 1
     fi
     
+    # Capture environment before sourcing
+    echo "Capturing initial environment..."
+    env | sort > /tmp/env_before.txt
+
     # Source all environment files from the correct directory
     echo "=== Sourcing Environment Files ==="
-    for env_file in "$ENV_DIR"/*.env; do
+    for env_file in "$${SCRIPT_DIR}"/*.env; do
       if [ -f "$env_file" ]; then
         echo "Sourcing $env_file..."
         set -a
@@ -85,17 +86,27 @@ download_and_validate_environments() {
       fi
     done
     
+    # Capture environment after sourcing
+    echo "=== Environment Changes ==="
+    env | sort > /tmp/env_after.txt
+
+    echo "New/Changed variables:"
+    diff /tmp/env_before.txt /tmp/env_after.txt | grep '^>' | sed 's/^> /  /' || echo "  No new variables detected"
+
+# Cleanup
+  # rm -f /tmp/env_before.txt /tmp/env_after.txt
+    
     echo "✓ Script Environment sourcing completed"
 
     # Make all scripts executable
-    chmod +x "$DOWNLOAD_DIR"/*.sh
+    chmod +x "$${SCRIPT_DIR}"/*.sh
 
     # Make all scripts executable
-    chmod +x "$DOWNLOAD_DIR"/*.sh
+    chmod +x "$${SCRIPT_DIR}"/*.sh
     
     echo "✓ Script validation completed"
     echo "Available scripts:"
-    ls -la "$DOWNLOAD_DIR"/*.sh
+    ls -la "$${SCRIPT_DIR}"
 }
 
 # =================================================================
@@ -108,7 +119,7 @@ execute_setup_scripts() {
     export SCRIPT_EXECUTION_MODE="entrypoint"
     
     # Execute the main orchestrator script
-    local entry_script="$DOWNLOAD_DIR/entrypoint.sh"
+    local entry_script="$${SCRIPT_DIR}/entrypoint.sh"
     
     if [ -f "$entry_script" ]; then
         echo "Starting main setup script: $entry_script"

@@ -6,7 +6,6 @@
 # =================================================================
 # SHARED FUNCTIONS INTEGRATION
 # =================================================================
-SCRIPT_DIR="$script_dir}"
 
 # Set DEBUG default to avoid unbound variable errors
 DEBUG=0
@@ -27,7 +26,7 @@ else
     exit 1
 fi
 
-setup_logging
+setup_logging "install-user-and-tooling"
 
 log_info "Starting K8s setup"
 
@@ -41,22 +40,19 @@ fi
 # =================================================================
 # CONFIGURATION VARIABLES (from Terraform)
 # =================================================================
-readonly TARGET_USER="$k8s_user}"
-readonly K8S_REPO_STREAM="$k8s_major_minor_stream}"
-readonly K8S_PKG_VERSION_STRING="$k8s_package_version_string}"
 readonly K8S_KEYRING_DIR="/etc/apt/keyrings"
 readonly K8S_KEYRING_FILE="${K8S_KEYRING_DIR}/kubernetes-apt-keyring.gpg"
 
 log_info "=== User and Tooling Installation Started ==="
-log_info "Target User: $TARGET_USER"
-log_info "K8S Repo Stream: v$K8S_REPO_STREAM"
-log_info "K8S Package Version: $K8S_PKG_VERSION_STRING"
+log_info "Target User: $K8S_USER"
+log_info "K8S Repo Stream: $K8S_MAJOR_MINOR_STREAM"
+log_info "K8S Package Version: $K8S_PACKAGE_VERSION_STRING"
 
 # =================================================================
 # INSTANCE METADATA RETRIEVAL
 # =================================================================
-source "${SCRIPT_DIR}/ec2-metadata-lib.sh"
-ec2_ensure_metadata || exit 1
+source "${SCRIPT_DIR}/001-ec2-metadata-lib.sh"
+ec2_init_metadata || exit 1
 
 # =================================================================
 # AWS CREDENTIALS VALIDATION
@@ -96,25 +92,25 @@ setup_target_user() {
     log_info "=== User Setup ==="
     
     # Create user if doesn't exist
-    if ! id "$TARGET_USER" &>/dev/null; then
-        log_info "Creating user: $TARGET_USER"
-        if useradd -m -s /bin/bash "$TARGET_USER"; then
+    if ! id "$K8S_USER" &>/dev/null; then
+        log_info "Creating user: $K8S_USER"
+        if useradd -m -s /bin/bash "$K8S_USER"; then
             # Disable password authentication
-            passwd -d "$TARGET_USER"
-            log_info "User $TARGET_USER created successfully"
+            passwd -d "$K8S_USER"
+            log_info "User $K8S_USER created successfully"
         else
-            log_error "Failed to create user $TARGET_USER"
+            log_error "Failed to create user $K8S_USER"
             return 1
         fi
     else
-        log_info "User $TARGET_USER already exists"
+        log_info "User $K8S_USER already exists"
     fi
     
     # Configure passwordless sudo
-    local sudoers_file="/etc/sudoers.d/$TARGET_USER"
-    echo "$TARGET_USER ALL=(ALL) NOPASSWD:ALL" > "$sudoers_file"
+    local sudoers_file="/etc/sudoers.d/$K8S_USER"
+    echo "$K8S_USER ALL=(ALL) NOPASSWD:ALL" > "$sudoers_file"
     chmod 440 "$sudoers_file"
-    log_info "Passwordless sudo configured for $TARGET_USER"
+    log_info "Passwordless sudo configured for $K8S_USER"
 }
 
 # =================================================================
@@ -123,19 +119,19 @@ setup_target_user() {
 setup_ssh_keys() {
     log_info "=== SSH Key Setup ==="
     
-    if [ -z "$AWS_METADATA_TOKEN" ] 2>/dev/null; then
+    if [ -z "$EC2_METADATA_TOKEN" ] 2>/dev/null; then
         log_warn "No metadata token available for SSH key retrieval"
         return 1
     fi
     
     # Fetch SSH public key from metadata
     local ssh_key=""
-    if ssh_key=$(curl -H "X-aws-ec2-metadata-token: $AWS_METADATA_TOKEN" \
+    if ssh_key=$(curl -H "X-aws-ec2-metadata-token: $EC2_METADATA_TOKEN" \
                    -fsSL "http://169.254.169.254/latest/meta-data/public-keys/0/openssh-key" \
                    --connect-timeout 10 --max-time 15 2>/dev/null); then
         
         if [ -n "$ssh_key" ] && [ "$ssh_key" != "Failed"* ]; then
-            local user_ssh_dir="/home/$TARGET_USER/.ssh"
+            local user_ssh_dir="/home/$K8S_USER/.ssh"
             
             # Create SSH directory
             mkdir -p "$user_ssh_dir"
@@ -146,9 +142,9 @@ setup_ssh_keys() {
             # Set proper permissions
             chmod 700 "$user_ssh_dir"
             chmod 600 "$user_ssh_dir/authorized_keys"
-            chown -R "$TARGET_USER:$TARGET_USER" "$user_ssh_dir"
+            chown -R "$K8S_USER:$K8S_USER" "$user_ssh_dir"
             
-            log_info "SSH key configured for $TARGET_USER"
+            log_info "SSH key configured for $K8S_USER"
             return 0
         fi
     fi
@@ -213,8 +209,8 @@ setup_kubernetes_repository() {
     mkdir -p "$K8S_KEYRING_DIR"
     
     # Download and install GPG key
-    local key_url="https://pkgs.k8s.io/core:/stable:/v$K8S_REPO_STREAM/deb/Release.key"
-    log_info "Downloading Kubernetes GPG key for v$K8S_REPO_STREAM..."
+    local key_url="https://pkgs.k8s.io/core:/stable:/v$K8S_MAJOR_MINOR_STREAM/deb/Release.key"
+    log_info "Downloading Kubernetes GPG key for v$K8S_MAJOR_MINOR_STREAM..."
     
     if curl -fsSL "$key_url" | gpg --dearmor -o "$K8S_KEYRING_FILE"; then
         log_info "Kubernetes GPG key installed successfully"
@@ -224,7 +220,7 @@ setup_kubernetes_repository() {
     fi
     
     # Add repository to sources
-    local repo_entry="deb [signed-by=$K8S_KEYRING_FILE] https://pkgs.k8s.io/core:/stable:/v$K8S_REPO_STREAM/deb/ /"
+    local repo_entry="deb [signed-by=$K8S_KEYRING_FILE] https://pkgs.k8s.io/core:/stable:/v$K8S_MAJOR_MINOR_STREAM/deb/ /"
     echo "$repo_entry" > /etc/apt/sources.list.d/kubernetes.list
     log_info "Kubernetes repository added to sources"
     
@@ -260,7 +256,7 @@ install_kubernetes_packages() {
     apt-get -f install -y
     
     # Build package string directly (no arrays = no Terraform template conflicts)
-    local k8s_package_list="kubelet=$K8S_PKG_VERSION_STRING kubeadm=$K8S_PKG_VERSION_STRING kubectl=$K8S_PKG_VERSION_STRING"
+    local k8s_package_list="kubelet=$K8S_PACKAGE_VERSION_STRING kubeadm=$K8S_PACKAGE_VERSION_STRING kubectl=$K8S_PACKAGE_VERSION_STRING"
     
     log_info "Installing: $k8s_package_list"
     
@@ -346,7 +342,7 @@ main() {
     log_info "Starting user and tooling installation..."
     
     # Get instance metadata
-    if ! ec2_ensure_metadata; then
+    if ! ec2_init_metadata; then
         log_error "Failed to retrieve instance metadata"
         return 1
     fi
@@ -395,7 +391,7 @@ main() {
     
     log_info "=== User and Tooling Installation Completed Successfully ==="
     log_info "Installed components:"
-    log_info "- User: $TARGET_USER (with sudo access)"
+    log_info "- User: $K8S_USER (with sudo access)"
     log_info "- Kubernetes: $(kubectl version --client --output=yaml 2>/dev/null | grep gitVersion || echo 'version check failed')"
     log_info "- Containerd: $(ctr version --format json 2>/dev/null | jq -r '.Server.Version' || echo 'version check failed')"
     

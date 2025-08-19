@@ -30,6 +30,7 @@ locals {
   k8s_scripts_bucket_name = var.k8s_scripts_bucket_name
 
   # SSH 
+  ssh_key_name         = var.security_config.ssh_key_name
   ssh_public_key_path  = var.security_config.ssh_public_key_path
   ssh_private_key_path = var.security_config.ssh_private_key_path
 
@@ -103,6 +104,7 @@ module "controllers" {
   k8s_scripts_bucket_name = local.k8s_scripts_bucket_name
 
   # SSH 
+  ssh_key_name         = local.ssh_key_name
   ssh_public_key_path  = local.ssh_public_key_path
   ssh_private_key_path = local.ssh_private_key_path
 

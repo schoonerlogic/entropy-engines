@@ -17,8 +17,6 @@ DEBUG=0
 
 setup_logging() {
     # Configuration from environment or defaults - these are Terraform interpolated values
-    local LOG_DIR="$log_dir}"
-    local LOG_LEVEL="$log_level}"
     # Set default if not provided by Terraform
     if [ -z "$LOG_LEVEL" ]; then
         LOG_LEVEL="INFO"
@@ -48,7 +46,7 @@ setup_logging() {
         # More robust detection - walk up BASH_SOURCE until we find non-shared-functions
         local found_caller=""
         for i in 1 2 3 4; do
-            if [ -n "${BASH_SOURCE[${i]}" ]; then
+            if [ -n "${BASH_SOURCE[$i]}" ]; then
                 local candidate=""
                 if [ -n "${BASH_SOURCE[$i]}" ]; then
                     candidate=$(basename "${BASH_SOURCE[$i]}")
@@ -76,8 +74,8 @@ setup_logging() {
     
     # Setup log file paths
     full_log_path="$LOG_DIR/$script_name.log"
-    error_log_path="$LOG_DIR/$script_name-error.log"
-    debug_log_path="$LOG_DIR/$script_name-debug.log"
+    error_log_path="$LOG_DIR/$script_name.log"
+    debug_log_path="$LOG_DIR/$script_name.log"
     trace_log_path="$LOG_DIR/$script_name-trace.log"
     
     # Only set bash strict mode if not already set (to avoid conflicts)

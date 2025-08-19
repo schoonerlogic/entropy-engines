@@ -48,7 +48,7 @@ log_info "SSM Join Command Path: $SSM_JOIN_COMMAND_PATH"
 # SHARED EC2 METADATA
 # =================================================================
 source "$$/{{SCRIPT_DIR}/001-ec2-metadata-lib.sh"
-ec2_ensure_metadata || exit 1
+ec2_init_metadata || exit 1
 
 # =================================================================
 # AWS CREDENTIALS VALIDATION
@@ -233,7 +233,7 @@ main() {
     log_info "Starting worker node cluster join..."
     
     # Get instance metadata
-    if ! ec2_ensure_metadata; then
+    if ! ec2_init _metadata; then
         log_error "Failed to retrieve instance metadata"
         return 1
     fi

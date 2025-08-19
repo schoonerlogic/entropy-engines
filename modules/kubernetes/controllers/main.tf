@@ -25,6 +25,7 @@ locals {
 
   # Security configuration
   environment          = var.environment
+  ssh_key_name         = var.ssh_key_name
   ssh_public_key_path  = var.ssh_public_key_path
   ssh_private_key_path = var.ssh_private_key_path
   security_group_ids   = var.security_group_ids
@@ -42,9 +43,10 @@ locals {
 
   # Script selection
   scripts_bucket_name = var.k8s_scripts_bucket_name
-  script_dir          = "/opt/k8s-setup-scripts"
+  script_dir          = "/opt/k8s-scripts"
   log_dir             = "/var/log/tf-provisioning"
   log_level           = var.log_level
+  node_type           = "controllers"
 
   # Script selection
   control_plane_bootstrap_script     = "control-plane-bootstrap.sh"
@@ -72,9 +74,9 @@ data "aws_region" "current" {}
 locals {
   # setup the initial environment to source for bash script variables
   setup_environment = {
-    download_dir = "/opt/k8s-scripts"
-    s3_bucket    = local.scripts_bucket_name
-    node_type    = "controllers"
+    s3_bucket  = local.scripts_bucket_name
+    node_type  = local.node_type
+    script_dir = local.script_dir
   }
 
   # script base path
@@ -261,9 +263,11 @@ resource "aws_launch_template" "controller_lt" {
   description = "Launch template for ${local.cluster_name} Control Plane"
 
   image_id = local.aws_ami
+  key_name = local.ssh_key_name
 
   # User data with script dependencies hash
   user_data = base64encode(templatefile(local.setup_environment_template, local.setup_environment))
+
 
   iam_instance_profile {
     name = aws_iam_instance_profile.controller_profile.name

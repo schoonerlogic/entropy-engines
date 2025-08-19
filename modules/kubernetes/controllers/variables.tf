@@ -141,6 +141,10 @@ variable "script_dependencies" {
 #===============================================================================
 # SSH Configuration
 #===============================================================================
+variable "ssh_key_name" {
+  description = "Name of SSH public key"
+  type        = string
+}
 
 variable "ssh_public_key_path" {
   description = "Path to SSH public key file"

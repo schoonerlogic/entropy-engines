@@ -6,7 +6,6 @@
 # =================================================================
 # SHARED FUNCTIONS INTEGRATION
 # =================================================================
-SCRIPT_DIR="$script_dir}"
 
 # load shared functions
 if [ -f "${SCRIPT_DIR}/00-shared-functions.sh" ]; then
