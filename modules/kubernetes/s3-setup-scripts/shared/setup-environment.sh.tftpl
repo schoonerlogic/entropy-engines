@@ -1,33 +1,50 @@
 #!/bin/bash
 
-DOWNLOAD_DIR=${download_dir}
-S3_BUCKET=${s3_bucket}
-NODE_TYPE=${node_type}
-
+# Stop execution if any command fails
+set -e
 
 # =================================================================
-#  ENVIRONMENT FILES DOWNLOAD AND VALIDATION
+# VARIABLES
+# These variables are expected to be interpolated by Terraform's templatefile function.
 # =================================================================
-download_and_validate_evironmets() {
-    echo "=== Downloading Enviroment files from S3 ==="
-    
-    ENV_DIR="$DOWNLOAD_DIR/k8s-env"
-    
-    mkdir $ENV_DIR
+DOWNLOAD_DIR="${download_dir}"
+S3_BUCKET="${s3_bucket}"
+NODE_TYPE="${node_type}"
 
-    # Download with retries local download_attempts=3
+echo "$DOWNLOAD_DIR: $DOWNLOAD_DIR"
+echo "$S3_BUCKET: $S3_BUCKET"
+echo "$NODE_TYPE: $NODE_TYPE"
+
+# =================================================================
+# ENVIRONMENT FILES DOWNLOAD AND VALIDATION
+# =================================================================
+download_and_validate_environments() {
+    echo "=== Downloading Environment files from S3 ==="
+    
+    local ENV_DIR="$DOWNLOAD_DIR"
+    
+    # Create the directory path if it doesn't exist
+    mkdir -p "$ENV_DIR"
+    echo "Created $ENV_DIR"
+
+    # Download with retries
     local download_attempts=3
     local attempt
-    for attempt in $(seq 1 $download_attempts; do
+    for attempt in $(seq 1 $download_attempts); do
         echo "Download attempt $attempt/$download_attempts..."
         
-        if aws s3 cp "s3://$S3_BUCKET/scripts/$NODE_TYPE" "$ENV_DIR" \
-          --recursive --quiet; then
-            echo "✓ Envronment files downloaded successfully"
+        # Attempt to copy files from S3
+        if aws s3 cp "s3://$S3_BUCKET/scripts/$NODE_TYPE/" "$ENV_DIR/" --recursive --quiet; then
+            echo "Environment files downloaded successfully"
+        fi
+
+        if aws s3 cp "s3://$S3_BUCKET/scripts/shared/" "$ENV_DIR/" --recursive --quiet; then
+            echo "Script files downloaded successfully"
             break
         fi
+
         
-        if [ $attempt -eq $download_attempts ]; then
+        if [ "$attempt" -eq "$download_attempts" ]; then
             echo "ERROR: Failed to download environments after $download_attempts attempts"
             return 1
         fi
@@ -36,15 +53,16 @@ download_and_validate_evironmets() {
         sleep $((attempt * 10))
     done
     
-    # Validate downloaded scripts
+    # Validate downloaded environment files
     echo "=== Validating Downloaded Environment Files ==="
     
-    if [ ! -d "$ENV_DIR" ] || [ -z "$(ls -A "$ENV_DIR"/*.sh )" ]; then
-        echo "ERROR: No scripts found in $ENV_DIR"
+    # Check if the directory is empty or doesn't contain .env files
+    if [ ! -d "$ENV_DIR" ] || [ -z "$(ls -A "$ENV_DIR"/*.env 2>/dev/null)" ]; then
+        echo "ERROR: No .env files found in $ENV_DIR"
         return 1
     fi
     
-    # Check for required files using simple approach
+    # Check for required files
     if [ ! -f "$ENV_DIR/00-shared-functions.env" ]; then
         echo "ERROR: Required file missing: 00-shared-functions.env"
         return 1
@@ -55,81 +73,33 @@ download_and_validate_evironmets() {
         return 1
     fi
     
-    # Source all script evvironments
-    for env_file in *.env; do
+    # Source all environment files from the correct directory
+    echo "=== Sourcing Environment Files ==="
+    for env_file in "$ENV_DIR"/*.env; do
       if [ -f "$env_file" ]; then
         echo "Sourcing $env_file..."
         set -a
+        # shellcheck source=/dev/null
         source "$env_file"
         set +a
       fi
     done
     
-    echo "✓ Script Environment Completed"
+    echo "✓ Script Environment sourcing completed"
+
+    # Make all scripts executable
+    chmod +x "$DOWNLOAD_DIR"/*.sh
+
+    # Make all scripts executable
+    chmod +x "$DOWNLOAD_DIR"/*.sh
+    
+    echo "✓ Script validation completed"
+    echo "Available scripts:"
+    ls -la "$DOWNLOAD_DIR"/*.sh
 }
 
- =================================================================
-# SCRIPT DOWNLOAD AND VALIDATION
 # =================================================================
-download_and_validate_scripts() {
-    echo "=== Downloading Scripts from S3 ==="
-    
-    SCRIPT_ENV="$DOWNLOAD_DIR"
-    if bash -c "source $SCRIPT_ENV && bash '$script_path'"; then
-    
-      # Download with retries
-      local download_attempts=3
-      local attempt
-      for attempt in $(seq 1 $download_attempts); do
-          echo "Download attempt $attempt/$download_attempts..."
-          
-          if aws s3 cp "s3://$S3_BUCKET/scripts/$NODE_TYPE" "$DOWNLOAD_DIR/" \
-            --recursive --quiet; then
-              echo "✓ Scripts downloaded successfully"
-              break
-          fi
-
-          
-          if [ $attempt -eq $download_attempts ]; then
-              echo "ERROR: Failed to download scripts after $download_attempts attempts"
-              return 1
-          fi
-          
-          echo "Download failed, retrying in $((attempt * 10)) seconds..."
-          sleep $((attempt * 10))
-      done
-      
-      # Validate downloaded scripts
-      echo "=== Validating Downloaded Scripts ==="
-      
-      if [ ! -d "$DOWNLOAD_DIR" ] || [ -z "$(ls -A "$DOWNLOAD_DIR"/*.sh 2>/dev/null)" ]; then
-          echo "ERROR: No scripts found in $DOWNLOAD_DIR"
-          return 1
-      fi
-      
-      # Check for required files using simple approach
-      if [ ! -f "$DOWNLOAD_DIR/00-shared-functions.sh" ]; then
-          echo "ERROR: Required file missing: 00-shared-functions.sh"
-          return 1
-      fi
-      
-      if [ ! -f "$DOWNLOAD_DIR/k8s-setup-main.sh" ]; then
-          echo "ERROR: Required file missing: k8s-setup-main.sh"
-          return 1
-      fi
-      
-      # Make all scripts executable
-      chmod +x "$DOWNLOAD_DIR"/*.sh
-      
-      echo "✓ Script validation completed"
-      echo "Available scripts:"
-      ls -la "$DOWNLOAD_DIR"/*.sh
-
-    fi
-}
-
-## =================================================================
-# SCRIPT EXECUTION (Integrated with shared functions)
+# SCRIPT EXECUTION
 # =================================================================
 execute_setup_scripts() {
     echo "=== Executing Setup Scripts ==="
@@ -161,23 +131,20 @@ execute_setup_scripts() {
 # MAIN EXECUTION
 # =================================================================
 main() {
+    echo "=== Starting EC2 Node Initialization ==="
 
- if ! download_and_validate_environments; then
-      echo "FATAL: Environment download/validation failed"
-      exit 1
- fi
+    if ! download_and_validate_environments; then
+        echo "FATAL: Environment download/validation failed"
+        exit 1
+    fi
     
- if ! download_and_validate_scripts; then
-      echo "FATAL: Script download/validation failed"
-      exit 1
- fi
-    
- if ! execute_setup_scripts; then
-      echo "FATAL: Setup execution failed"
-      exit 1
- fi
+    if ! execute_setup_scripts; then
+        echo "FATAL: Setup execution failed"
+        exit 1
+    fi
 
+    echo "=== EC2 Node Initialization Finished Successfully ==="
+}
 
-
-
-
+# Execute the main function
+main

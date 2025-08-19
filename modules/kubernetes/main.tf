@@ -6,28 +6,12 @@
 data "aws_caller_identity" "current" {}
 data "aws_region" "current" {}
 
-# Add the missing Ubuntu AMI data source
-data "aws_ami" "ubuntu" {
-  most_recent = true
-  owners      = ["099720109477"] # Canonical
-
-  filter {
-    name   = "name"
-    values = ["ubuntu/images/hvm-ssd/ubuntu-${var.instance_config.ubuntu_version}-*-${var.instance_config.ami_architecture}-server-*"]
-  }
-
-  filter {
-    name   = "virtualization-type"
-    values = ["hvm"]
-  }
-}
-
 locals {
   environment = var.core_config.environment
   aws_ami     = var.aws_ami
 
   k8s_user                   = var.kubernetes_config.k8s_user
-  cluster_name               = coalesce(var.cluster_name, var.kubernetes_config.cluster_name, "${var.core_config.project}-${var.core_config.environment}")
+  cluster_name               = var.kubernetes_config.cluster_name
   k8s_major_minor_stream     = var.kubernetes_config.k8s_major_minor_stream
   k8s_full_patch_version     = var.kubernetes_config.k8s_full_patch_version
   k8s_apt_package_suffix     = var.kubernetes_config.k8s_apt_package_suffix
@@ -39,8 +23,8 @@ locals {
   pod_cidr_block     = var.pod_cidr_block
   service_cidr_block = var.service_cidr_block
 
-  subnet_ids         = coalesce(var.network_config.private_subnet_ids, var.subnet_ids)
-  security_group_ids = coalesce(var.network_config.control_plane_security_group_id, var.security_group_ids)
+  subnet_ids         = var.network_config.subnet_ids
+  security_group_ids = var.security_config.security_group_ids
 
   # S3
   k8s_scripts_bucket_name = var.k8s_scripts_bucket_name

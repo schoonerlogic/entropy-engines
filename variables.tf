@@ -416,18 +416,6 @@ variable "service_cidr_block" {
   default     = ""
 }
 
-variable "subnet_ids" {
-  description = "List of subnet IDs where GPU workers will be launched"
-  type        = list(string)
-  default     = []
-}
-
-variable "security_group_ids" {
-  description = "List of security group IDs for GPU workers"
-  type        = list(string)
-  default     = []
-}
-
 variable "k8s_scripts_bucket_name" {
   description = "Name of the S3 bucket for bootstrap"
   type        = string

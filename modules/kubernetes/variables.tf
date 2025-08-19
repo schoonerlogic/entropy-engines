@@ -75,15 +75,6 @@ variable "service_cidr_block" {
   type        = string
 }
 
-variable "subnet_ids" {
-  description = "List of subnet IDs where workers will be launched"
-  type        = list(string)
-}
-
-variable "security_group_ids" {
-  description = "List of security group IDs for workers"
-  type        = list(string)
-}
 
 # Role names
 variable "control_plane_role_name" {
@@ -165,7 +156,6 @@ variable "network_config" {
     subnet_ids           = list(string)
     iam_policy_version   = optional(string, "v1")
 
-    # ADD THESE MISSING FIELDS
     private_subnet_ids              = optional(list(string), [])
     control_plane_security_group_id = optional(list(string), [])
   })

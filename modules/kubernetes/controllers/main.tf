@@ -72,7 +72,7 @@ data "aws_region" "current" {}
 locals {
   # setup the initial environment to source for bash script variables
   setup_environment = {
-    download_dir = local.log_dir
+    download_dir = "/opt/k8s-scripts"
     s3_bucket    = local.scripts_bucket_name
     node_type    = "controllers"
   }
@@ -128,29 +128,29 @@ locals {
       env_path      = "${local.script_env_path}/shared/00-shared-functions.env.tftpl"
       vars          = local.shared_functions_vars
       s3_script_key = "scripts/shared/00-shared-functions.sh"
-      s3_env_key    = "scripts/shared/00-shared-functions.env.tftpl"
+      s3_env_key    = "scripts/shared/00-shared-functions.env"
     }
     "001-ec2-metadata-lib" = {
       script_path   = "${local.script_base_path}/shared/001-ec2-metadata-lib.sh"
       env_path      = "${local.script_env_path}/shared/001-ec2-metadata-lib.env.tftpl"
       vars          = {}
       s3_script_key = "scripts/shared/001-ec2-metadata-lib.sh"
-      s3_env_key    = "scripts/shared/001-ec2-metadata-lib.env.tftpl"
+      s3_env_key    = "scripts/shared/001-ec2-metadata-lib.env"
     }
     "01-install-user-and-tooling" = {
       script_path   = "${local.script_base_path}/shared/01-install-user-and-tooling.sh"
       env_path      = "${local.script_env_path}/shared/01-install-user-and-tooling.env.tftpl"
       vars          = local.shared_env_vars
       s3_script_key = "scripts/shared/01-install-user-and-tooling.sh"
-      s3_env_key    = "scripts/shared/01-install-user-and-tooling.env.tftpl"
+      s3_env_key    = "scripts/shared/01-install-user-and-tooling.env"
     }
     # passed as user_data but downloaded from s3 for reference
     "entrypoint" = {
       script_path   = "${local.script_base_path}/shared/entrypoint.sh"
       env_path      = "${local.script_env_path}/shared/entrypoint.env.tftpl"
       vars          = local.entrypoint_vars
-      s3_script_key = "script/shared/entrypoint.sh"
-      s3_env_key    = "scripts/shared/entrypoint.env.tftpl"
+      s3_script_key = "scripts/shared/entrypoint.sh"
+      s3_env_key    = "scripts/shared/entrypoint.env"
     }
   }
 
@@ -161,28 +161,28 @@ locals {
       env_path      = "${local.script_env_path}/controllers/k8s-setup-main.env.tftpl"
       vars          = local.k8s_setup_main_vars
       s3_script_key = "scripts/controllers/k8s-setup-main.sh"
-      s3_env_key    = "scripts/controllers/k8s-setup-main.env.tftpl"
+      s3_env_key    = "scripts/controllers/k8s-setup-main.env"
     }
     "02-install-kubernetes" = {
       script_path   = "${local.script_base_path}/controllers/02-install-kubernetes.sh"
       env_path      = "${local.script_env_path}/controllers/02-install-kubernetes.env.tftpl"
       vars          = local.install_kubernetes_vars
       s3_script_key = "scripts/controllers/02-install-kubernetes.sh"
-      s3_env_key    = "scripts/controllers/02-install-kubernetes.env.tftpl"
+      s3_env_key    = "scripts/controllers/02-install-kubernetes.env"
     }
     "03-install-cni" = {
       script_path   = "${local.script_base_path}/controllers/04-install-cni.sh"
       env_path      = "${local.script_env_path}/controllers/04-install-cni.env.tftpl"
       vars          = local.shared_env_vars
       s3_script_key = "scripts/controllers/04-install-cni.sh"
-      s3_env_key    = "scripts/controllers/04-install-cni.env.tftpl"
+      s3_env_key    = "scripts/controllers/04-install-cni.env"
     }
     "04-install-addons" = {
       script_path   = "${local.script_base_path}/controllers/05-install-addons.sh"
       env_path      = "${local.script_env_path}/controllers/05-install-addons.env.tftpl"
       vars          = local.shared_env_vars
       s3_script_key = "scripts/controllers/05-install-addons.sh"
-      s3_env_key    = "scripts/controllers/05-install-addons.env.tftpl"
+      s3_env_key    = "scripts/controllers/05-install-addons.env"
     }
   }
 
