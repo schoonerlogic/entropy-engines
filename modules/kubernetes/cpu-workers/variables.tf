@@ -68,6 +68,11 @@ variable "ssm_join_command_path" {
   type        = string
 }
 
+variable "join_cmd_suffix" {
+  description = "Added for unique parameter store key"
+  type        = string
+}
+
 #===============================================================================
 # S3 Configuration
 #===============================================================================

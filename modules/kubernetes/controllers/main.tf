@@ -40,6 +40,7 @@ locals {
   # SSM paths
   ssm_join_command_path    = "/entropy-engines/${local.cluster_name}/control-plane/join-command"
   ssm_certificate_key_path = "/entropy-engines/${local.cluster_name}/join-command/certificate/key"
+  join_cmd_suffix          = var.join_cmd_suffix
 
   # Script selection
   scripts_bucket_name = var.k8s_scripts_bucket_name
@@ -121,6 +122,7 @@ locals {
     bucket_name              = local.scripts_bucket_name
     wait_interval            = 15
     script_dir               = local.script_dir
+    join_cmd_suffix          = local.join_cmd_suffix
   })
 
   # Shared scripts (used by controllers)

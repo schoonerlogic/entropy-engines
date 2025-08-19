@@ -165,6 +165,13 @@ variable "ssm_certificate_key_path" {
   description = "Certificate for securing parameter join key"
   type        = string
 }
+
+variable "join_cmd_suffix" {
+  description = "Added for unique parameter store key"
+  type        = string
+}
+
+
 #===============================================================================
 # Block Device Mappings
 #===============================================================================

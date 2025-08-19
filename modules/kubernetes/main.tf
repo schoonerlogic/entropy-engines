@@ -20,6 +20,7 @@ locals {
   ssm_join_command_path    = var.kubernetes_config.ssm_join.ssm_join_command_path
   ssm_certificate_key_path = var.kubernetes_config.ssm_join.ssm_certificate_key_path
 
+
   pod_cidr_block     = var.pod_cidr_block
   service_cidr_block = var.service_cidr_block
 
@@ -36,6 +37,15 @@ locals {
 
   # Storage configuration
   block_device_mappings = var.instance_config.default_block_device_mappings
+}
+
+resource "random_integer" "join_cmd_suffix" {
+  min = 10000
+  max = 99999
+}
+
+locals {
+  join_cmd_suffix = random_integer.join_cmd_suffix.result
 }
 
 ##############################
@@ -87,8 +97,10 @@ module "controllers" {
   k8s_full_patch_version     = local.k8s_full_patch_version
   k8s_apt_package_suffix     = local.k8s_apt_package_suffix
   k8s_package_version_string = local.k8s_package_version_string
-  pod_cidr_block             = local.ctrl_config.pod_cidr_block
-  service_cidr_block         = local.ctrl_config.service_cidr_block
+  join_cmd_suffix            = local.join_cmd_suffix
+
+  pod_cidr_block     = local.ctrl_config.pod_cidr_block
+  service_cidr_block = local.ctrl_config.service_cidr_block
 
   ssm_join_command_path    = local.ssm_join_command_path
   ssm_certificate_key_path = local.ssm_certificate_key_path
@@ -196,6 +208,7 @@ locals {
   }
 }
 
+
 module "cpu_workers" {
   # Only create if CPU workers are configured
   count = local.cpu_config.total_count > 0 ? 1 : 0
@@ -216,6 +229,7 @@ module "cpu_workers" {
   k8s_user                   = local.k8s_user
   k8s_major_minor_stream     = local.k8s_major_minor_stream
   k8s_package_version_string = local.k8s_package_version_string
+  join_cmd_suffix            = local.join_cmd_suffix
 
   # ASG configuration with CPU-optimized defaults
   min_size                  = local.cpu_config.asg_config.min_size
@@ -367,6 +381,7 @@ module "gpu_workers" {
   k8s_user                   = local.k8s_user
   k8s_major_minor_stream     = local.k8s_major_minor_stream
   k8s_package_version_string = local.k8s_package_version_string
+  join_cmd_suffix            = local.join_cmd_suffix
 
   min_size          = local.gpu_config.asg_config.min_size
   max_size          = local.gpu_config.asg_config.max_size

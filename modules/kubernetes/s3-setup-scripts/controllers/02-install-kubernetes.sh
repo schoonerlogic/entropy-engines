@@ -48,14 +48,14 @@ fi
 # =================================================================
 # CONFIGURATION VARIABLES (from Terraform)
 # =================================================================
-readonly PRIMARY_PARAM="/k8s/${CLUSTER_NAME}/primary-controller"
+readonly PRIMARY_PARAM="/k8s/${CLUSTER_NAME}/primary-controller-${JOIN_CMD_SUFFIX}"
 
 log_info "=== Control Plane Configuration Started ==="
 log_info "Cluster Name: ${CLUSTER_NAME}"
 log_info "Kubernetes Version: ${K8S_FULL_PATCH_VERSION}"
 log_info "Pod CIDR: ${POD_CIDR_BLOCK}"
 log_info "Service CIDR: ${SERVICE_CIDR_BLOCK}"
-
+log_info "PRIMARY_PARAM: ${PRIMARY_PARAM}"
 # =================================================================
 # CONTROLLER ROLE DETERMINATION
 # =================================================================
@@ -76,12 +76,13 @@ determine_controller_role() {
     fi
     
     # Determine role based on existing primary
+    # Logic for primary value needs more think
     if [ "${existing_primary}" = "UNASSIGNED" ] || [ "${existing_primary}" = "None" ] || [ -z "${existing_primary}" ]; then
         log_info "Attempting to claim primary controller role..."
         
         # Attempt to claim primary role
         if aws ssm put-parameter --name "${PRIMARY_PARAM}" \
-             --value "${INSTANCE_IP}" \
+             --value "${INSTANCE_IP}-${JOIN_CMD_SUFFIX}" \
              --type "String" \
              --overwrite \
              --region "${INSTANCE_REGION}" >/dev/null 2>&1; then
