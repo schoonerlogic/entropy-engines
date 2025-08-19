@@ -76,13 +76,13 @@ determine_controller_role() {
     fi
     
     # Determine role based on existing primary
-    # Logic for primary value needs more think
+    # Logic for primary value needs more thin
     if [ "${existing_primary}" = "UNASSIGNED" ] || [ "${existing_primary}" = "None" ] || [ -z "${existing_primary}" ]; then
         log_info "Attempting to claim primary controller role..."
         
         # Attempt to claim primary role
         if aws ssm put-parameter --name "${PRIMARY_PARAM}" \
-             --value "${INSTANCE_IP}-${JOIN_CMD_SUFFIX}" \
+             --value "${INSTANCE_IP}" \
              --type "String" \
              --overwrite \
              --region "${INSTANCE_REGION}" >/dev/null 2>&1; then
@@ -99,8 +99,22 @@ determine_controller_role() {
         log_info "✅ Already assigned as primary controller"
         
     else
-        export K8S_ROLE="secondary"
-        log_info "✅ Assigned as secondary controller (Primary: ${existing_primary})"
+       if aws ssm put-parameter --name "${PRIMARY_PARAM}" \
+             --value "${INSTANCE_IP}" \
+             --type "String" \
+             --overwrite \
+             --region "${INSTANCE_REGION}" >/dev/null 2>&1; then
+            
+            export K8S_ROLE="primary"
+            log_info "✅ Successfully reclaimed primary controller role"
+        else
+            log_error "Failed to claim primary controller role"
+            return 1
+        fi
+
+        # remove for dev platform
+        # export K8S_ROLE="secondary"
+        # log_info "✅ Assigned as secondary controller (Primary: ${existing_primary})"
     fi
     
     log_info "Controller role: ${K8S_ROLE}"
