@@ -20,8 +20,15 @@ locals {
   # Network configuration
   aws_ami            = var.aws_ami
   subnet_ids         = var.subnet_ids
+  joined_subnet_ids  = join(" ", var.subnet_ids)
   pod_cidr_block     = var.pod_cidr_block
   service_cidr_block = var.service_cidr_block
+
+  # NLB
+  vpc_id         = var.vpc_id
+  use_route53    = false
+  cluster_domain = "k8s.local"
+  api_dns_name   = "api.${local.cluster_name}.${local.cluster_domain}"
 
   # Security configuration
   environment          = var.environment
@@ -74,6 +81,7 @@ data "aws_region" "current" {}
 
 locals {
   # setup the initial environment to source for bash script variables
+  # these are templates variable settings for .env files
   setup_environment = {
     s3_bucket  = local.scripts_bucket_name
     node_type  = local.node_type
@@ -99,6 +107,15 @@ locals {
   # k8s_setup_main_vars
   k8s_setup_main_vars = {
     script_dir = local.script_dir
+  }
+
+  # setup NLB
+  setup_load_balancer_vars = {
+    vpc_id         = local.vpc_id
+    subnet_ids     = local.joined_subnet_ids
+    use_route53    = local.use_route53
+    cluster_domain = local.cluster_domain
+    api_dns_name   = local.api_dns_name
   }
 
   # Shared script variables
@@ -167,6 +184,7 @@ locals {
       s3_script_key = "scripts/controllers/k8s-setup-main.sh"
       s3_env_key    = "scripts/controllers/k8s-setup-main.env"
     }
+
     "02-install-kubernetes" = {
       script_path   = "${local.script_base_path}/controllers/02-install-kubernetes.sh"
       env_path      = "${local.script_env_path}/controllers/02-install-kubernetes.env.tftpl"
@@ -174,6 +192,15 @@ locals {
       s3_script_key = "scripts/controllers/02-install-kubernetes.sh"
       s3_env_key    = "scripts/controllers/02-install-kubernetes.env"
     }
+
+    "03-setup-load-balancer" = {
+      script_path   = "${local.script_base_path}/controllers/03-setup-load-balancer.sh"
+      env_path      = "${local.script_env_path}/controllers/03-setup-load-balancer.env.tftpl"
+      vars          = local.setup_load_balancer_vars
+      s3_script_key = "scripts/controllers/03-setup-load-balancer.sh"
+      s3_env_key    = "scripts/controllers/03-setup-load-balancer.env"
+    }
+
     "03-install-cni" = {
       script_path   = "${local.script_base_path}/controllers/04-install-cni.sh"
       env_path      = "${local.script_env_path}/controllers/04-install-cni.env.tftpl"
@@ -181,12 +208,13 @@ locals {
       s3_script_key = "scripts/controllers/04-install-cni.sh"
       s3_env_key    = "scripts/controllers/04-install-cni.env"
     }
-    "04-install-addons" = {
-      script_path   = "${local.script_base_path}/controllers/05-install-addons.sh"
-      env_path      = "${local.script_env_path}/controllers/05-install-addons.env.tftpl"
+
+    "04-install-cluster-addons" = {
+      script_path   = "${local.script_base_path}/controllers/05-install-cluster-addons.sh"
+      env_path      = "${local.script_env_path}/controllers/05-install-cluster-addons.env.tftpl"
       vars          = local.shared_env_vars
-      s3_script_key = "scripts/controllers/05-install-addons.sh"
-      s3_env_key    = "scripts/controllers/05-install-addons.env"
+      s3_script_key = "scripts/controllers/05-install-cluster-addons.sh"
+      s3_env_key    = "scripts/controllers/05-install-cluster-addons.env"
     }
   }
 

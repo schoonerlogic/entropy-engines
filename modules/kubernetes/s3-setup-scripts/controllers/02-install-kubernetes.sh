@@ -139,7 +139,6 @@ apiVersion: kubeadm.k8s.io/v1beta3
 kind: InitConfiguration
 nodeRegistration:
   kubeletExtraArgs:
-    cloud-provider: external
     node-ip: ${INSTANCE_IP}
 
 ---
@@ -159,15 +158,13 @@ apiServer:
     - "kubernetes.default.svc.cluster.local"
     - "localhost"
     - "127.0.0.1"
-  extraArgs:
-    cloud-provider: external
+  extraArgs: {}
 networking:
   podSubnet: ${POD_CIDR_BLOCK}
   serviceSubnet: ${SERVICE_CIDR_BLOCK}
   dnsDomain: cluster.local
 controllerManager:
-  extraArgs:
-    cloud-provider: external
+  extraArgs: {}
 scheduler:
   extraArgs: {}
 

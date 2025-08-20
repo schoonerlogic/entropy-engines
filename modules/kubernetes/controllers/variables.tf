@@ -102,6 +102,10 @@ variable "service_cidr_block" {
 #===============================================================================
 # Networking
 #===============================================================================
+variable "vpc_id" {
+  description = "ID for NLB"
+  type        = string
+}
 
 variable "subnet_ids" {
   description = "List of subnet IDs for controller instances"

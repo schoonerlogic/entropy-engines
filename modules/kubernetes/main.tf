@@ -24,6 +24,7 @@ locals {
   pod_cidr_block     = var.pod_cidr_block
   service_cidr_block = var.service_cidr_block
 
+  vpc_id             = var.network_config.vpc_id
   subnet_ids         = var.network_config.subnet_ids
   security_group_ids = var.security_config.security_group_ids
 
@@ -106,6 +107,7 @@ module "controllers" {
   ssm_certificate_key_path = local.ssm_certificate_key_path
 
   # Networking
+  vpc_id             = local.vpc_id
   subnet_ids         = local.subnet_ids
   security_group_ids = local.security_group_ids
 

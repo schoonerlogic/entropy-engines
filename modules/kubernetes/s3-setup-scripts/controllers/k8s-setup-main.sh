@@ -50,9 +50,9 @@ fi
 SCRIPTS=(
     "01-install-user-and-tooling.sh"
     "02-install-kubernetes.sh" 
-    "03-configure-cluster.sh"
+    "03-setup-load-balancer.sh"
     "04-install-cni.sh"
-    "05-install-cluster-addons.sh"
+#    "05-install-cluster-addons.sh"
 )
 
 # Execute scripts in sequence

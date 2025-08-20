@@ -153,6 +153,7 @@ variable "network_config" {
     availability_zones   = optional(list(string), null)
     public_subnet_count  = optional(number, 2)
     private_subnet_count = optional(number, 4)
+    vpc_id               = string
     subnet_ids           = list(string)
     iam_policy_version   = optional(string, "v1")
 

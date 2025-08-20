@@ -33,7 +33,8 @@ module "kubernetes" {
   # All the configuration objects
   network_config = merge(var.network_config, {
     k8s_scripts_bucket_name = module.aws_infrastructure.k8s_scripts_bucket_name
-    subnet_ids              = module.aws_infrastructure.private_subnet_ids,
+    vpc_id                  = module.aws_infrastructure.vpc_id
+    subnet_ids              = module.aws_infrastructure.private_subnet_ids
   })
 
   security_config = merge(

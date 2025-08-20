@@ -1,5 +1,5 @@
 #!/bin/bash
-# 05-install-addons.sh.tftpl
+# 05-install-cluster-addons.sh
 # Refactored to use shared functions architecture
 # Installs essential cluster addons: metrics-server, AWS EBS CSI driver, and other optional components
 
@@ -23,7 +23,7 @@ else
     exit 1
 fi
 
-setup_logging "install-addons"
+setup_logging "install-cluster-addons"
 
 log_info "Starting K8s setup with log level: ${LOG_LEVEL}"
 
