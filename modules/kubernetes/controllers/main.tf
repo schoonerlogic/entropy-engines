@@ -131,6 +131,7 @@ locals {
     script_dir         = local.script_dir
     cni_plugin         = local.cni_plugin
     cni_plugin_version = local.cni_plugin_version
+    aws_region         = data.aws_region.current.name
   }
 
   # Shared script variables

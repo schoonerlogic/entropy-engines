@@ -3,6 +3,9 @@
 # Refactored to use shared functions architecture
 # Installs and configures CNI plugin (Calico), sets up kubectl for target user, and finalizes cluster
 
+set -euo pipefail
+IFS=$'\n\t'
+
 # =================================================================
 # SHARED FUNCTIONS INTEGRATION
 # =================================================================
@@ -19,7 +22,7 @@ if [ -f "${SCRIPT_DIR}/00-shared-functions.sh" ]; then
         exit 1
     fi
 else
-    echo "ERROR: Canggggnot find shared functions file: ${SCRIPT_DIR}/00-shared-functions.sh"
+    echo "ERROR: Cannot find shared functions file: ${SCRIPT_DIR}/00-shared-functions.sh"
     exit 1
 fi
 
@@ -71,12 +74,11 @@ verify_cluster_accessibility() {
             log_info "✅ Cluster is accessible"
             
             # Show cluster info for logging
-            aws_region     = data.aws_region.current.name
+            aws_region     = ${INSTANCE_REGION}
             log_info "Cluster information:"
             kubectl cluster-info | while IFS= read -r line; do
                 log_info "  $line"
             done
-            
             return 0
         fi
         
@@ -92,7 +94,7 @@ verify_cluster_accessibility() {
 }
 
 # =================================================================
-# CNI PLUGIN INSTALLATION
+# CALICO CNI PLUGIN INSTALLATION
 # =================================================================
 install_calico_cni() {
     log_info "=== Installing Calico CNI Plugin ==="
@@ -128,52 +130,14 @@ wait_for_calico_pods() {
     local interval=10
     local elapsed=0
     
-    while [ $elapsed -lt $timeout ]; do
-        log_info "Checking Calico pod status ($elapsed/$timeout seconds)..."
-        
-        # Show current pod status for debugging
-        log_info "Calico node pods:"
-        kubectl get pods -n kube-system -l k8s-app=calico-node -o wide 2>/dev/null | while IFS= read -r line; do
-            log_info "  $line"
-        done
-        
-        log_info "Calico controller pods:"
-        kubectl get pods -n kube-system -l k8s-app=calico-kube-controllers -o wide 2>/dev/null | while IFS= read -r line; do
-            log_info "  $line"
-        done
-        
-        # Count ready pods
-        local calico_nodes_ready=0
-        local calico_controllers_ready=0
-        
-        calico_nodes_ready=$(kubectl get pods -n kube-system -l k8s-app=calico-node \
-                              --field-selector=status.phase=Running --no-headers 2>/dev/null | wc -l)
-        calico_controllers_ready=$(kubectl get pods -n kube-system -l k8s-app=calico-kube-controllers \
-                                    --field-selector=status.phase=Running --no-headers 2>/dev/null | wc -l)
-        
-        log_info "Ready pods - Nodes: $calico_nodes_ready, Controllers: $calico_controllers_ready"
-        
-        # Check if we have at least one of each type running
-        if [ "$calico_nodes_ready" -gt 0 ] && [ "$calico_controllers_ready" -gt 0 ]; then
-            log_info "✅ Calico pods are ready"
-            break
-        fi
-        
-        if [ $elapsed -ge $timeout ]; then
-            log_error "Timeout waiting for Calico pods to be ready"
-            log_error "Current pod status:"
-            kubectl get pods -n kube-system -l k8s-app=calico-node || true
-            kubectl get pods -n kube-system -l k8s-app=calico-kube-controllers || true
-            return 1
-        fi
-        
-        sleep $interval
-        elapsed=$((elapsed + interval))
-    done
-    
-    return 0
+    log_info "Waiting for Calico DaemonSet & Deployment …"
+    kubectl -n kube-system rollout status ds/calico-node     --timeout=300s
+    kubectl -n kube-system rollout status deploy/calico-kube-controllers --timeout=300s
 }
 
+# =================================================================
+# FLANNEL CNI PLUGIN INSTALLATION
+# =================================================================
 install_flannel_cni() {
     log_info "=== Installing Flannel CNI Plugin ==="
     
@@ -200,6 +164,22 @@ install_flannel_cni() {
     return 0
 }
 
+wait_for_flannel_pods() {
+    log_info "=== Waiting for flannes Pods to be Ready ==="
+    
+    local timeout=300  # 5 minutes
+    local interval=10
+    local elapsed=0
+    
+    log_info "Waiting for Flannel DaemonSet & Deployment …"
+    kubectl -n kube-system rollout status ds/flannel-node     --timeout=300s
+    kubectl -n kube-system rollout status deploy/flannel-kube-controllers --timeout=300s
+}
+
+
+# =================================================================
+#  CNI PLUGIN INVOKE INSTALLATION
+# =================================================================
 install_cni_plugin() {
     log_info "=== Installing CNI Plugin: ${CNI_PLUGIN} ==="
     
@@ -225,23 +205,7 @@ install_cni_plugin() {
 wait_for_nodes_ready() {
     log_info "=== Waiting for Nodes to be Ready ==="
     
-    log_info "Waiting for all nodes to be ready..."
-    if kubectl wait --for=condition=Ready nodes --all --timeout=300s; then
-        log_info "✅ All nodes are ready"
-        
-        # Show final node status
-        log_info "Final node status:"
-        kubectl get nodes -o wide | while IFS= read -r line; do
-            log_info "  $line"
-        done
-    else
-        log_error "Timeout waiting for nodes to be ready"
-        log_error "Current node status:"
-        kubectl get nodes -o wide || true
-        return 1
-    fi
-    
-    return 0
+    kubectl wait --for=condition=Ready nodes --all --timeout=300s
 }
 
 # =================================================================
@@ -286,8 +250,6 @@ setup_user_kubectl_config() {
         log_error "Admin config not found: ${KUBECONFIG_PATH}"
         return 1
     fi
-    
-    cp "${KUBECONFIG_PATH}" "${kube_config}"
     
     # Set proper ownership
     log_info "Setting ownership to $target_uid:$target_gid"
@@ -334,83 +296,85 @@ EOF
     log_info "✅ Completion signal created: ${COMPLETION_SIGNAL_FILE}"
 }
 
-perform_final_verification() {
-    log_info "=== Final Cluster Verification ==="
-    
-    # Final cluster state verification
-    log_info "Final cluster information:"
-    kubectl cluster-info | while IFS= read -r line; do
-        log_info "  $line"
-    done
-    
-    log_info "All nodes:"
-    kubectl get nodes -o wide | while IFS= read -r line; do
-        log_info "  $line"
-    done
-    
-    log_info "All pods across all namespaces:"
-    kubectl get pods -A -o wide | while IFS= read -r line; do
-        log_info "  $line"
-    done
-    
-    log_info "System services status:"
-    kubectl get svc -A | while IFS= read -r line; do
-        log_info "  $line"
-    done
-    
-    # Check cluster health
-    log_info "Cluster component status:"
-    kubectl get componentstatuses 2>/dev/null | while IFS= read -r line; do
-        log_info "  $line"
-    done || log_warn "Component status check not available"
-    
-    log_info "✅ Final verification completed"
+
+################################################################################
+# Atomic kubeconfig swap (idempotent, temp-file + mv)
+################################################################################
+update_kubeconfig_for_dns() {
+    local target_dns_name=$1
+    local kubeconfig=${2:-/etc/kubernetes/admin.conf}
+
+    [[ -f $kubeconfig ]] || { log_warn "kubeconfig missing, skipping"; return 0; }
+
+    local tmp
+    tmp=$(mktemp /tmp/kubeconfig.XXXXXX)
+    trap 'rm -f "$tmp"' EXIT         # always clean up
+
+    cp "$kubeconfig" "$tmp"
+    kubectl config set-cluster "$(kubectl config current-cluster --kubeconfig="$tmp")" \
+        --server="https://${target_dns_name}:6443" \
+        --kubeconfig="$tmp" >/dev/null
+
+    mv "$tmp" "$kubeconfig"          # atomic
+    chown root:root "$kubeconfig"
+    chmod 600 "$kubeconfig"
+    log_info "✅ kubeconfig updated to https://${target_dns_name}:6443"
 }
 
-# =================================================================
-# MAIN EXECUTION
-# =================================================================
+################################################################################
+# Simple POSIX file lock around the whole bootstrap
+################################################################################
+with_lock() {
+    local lockfile="/var/lock/$(basename "$0").lock"
+    exec 9>"$lockfile"
+    flock -n 9 || { log_error "Another instance is already running"; return 1; }
+    log_info "Acquired bootstrap lock $lockfile"
+}
+
+################################################################################
+# Main Execution
+################################################################################
 main() {
-    log_info "Starting CNI installation and cluster finalization..."
-    
-    # Verify cluster is accessible
-    if ! verify_cluster_accessibility; then
-        log_error "Cluster accessibility verification failed"
-        return 1
+    with_lock || return 1   # prevent concurrent runs
+
+    log_info "=== CNI Installation & Cluster Finalization ==="
+
+    # 1.  Basic sanity
+    verify_cluster_accessibility || return 1
+
+    # 2.  CNI
+    install_cni_plugin || return 1
+    wait_for_nodes_ready || return 1
+
+    # 3.  User kubectl
+    setup_user_kubectl_config || return 1
+
+    # 4.  Decide which DNS record to use
+    local api_dns_name
+    if [[ ${USE_ROUTE53:-false} == "true" ]]; then
+        api_dns_name="${API_DNS_NAME}"
+    else
+        api_dns_name="${nlb_dns_name}"
     fi
-    
-    # Install CNI plugin
-    if ! install_cni_plugin; then
-        log_error "CNI plugin installation failed"
-        return 1
-    fi
-    
-    # Wait for nodes to be ready
-    if ! wait_for_nodes_ready; then
-        log_error "Nodes failed to become ready"
-        return 1
-    fi
-    
-    # Set up kubectl for target user
-    if ! setup_user_kubectl_config; then
-        log_error "Failed to set up kubectl configuration for user"
-        return 1
-    fi
-    
-    # Create completion signal
+
+    # 5.  Update kubeconfig to point at the load-balancer
+    update_kubeconfig_for_dns "$api_dns_name" "${KUBECONFIG_PATH}"
+
+    # 6.  Final verification (must succeed for CI)
+    verify_load_balancer_setup || return 1
+
+    # 7.  Completion signal
     create_completion_signal
-    
-    # Final verification
-    perform_final_verification
-    
-    log_info "=== CNI Installation and Cluster Finalization Completed Successfully ==="
-    log_info "✅ CNI Plugin (${CNI_PLUGIN}) installed and ready"
-    log_info "✅ All nodes are ready"
-    log_info "✅ kubectl configured for user: ${K8S_USER}"
-    log_info "✅ Completion signal created: ${COMPLETION_SIGNAL_FILE}"
-    log_info "✅ Cluster is fully operational"
-    
-    return 0
+
+    # 8.  Machine-friendly summary
+    jq -n \
+        --arg cni      "${CNI_PLUGIN}" \
+        --arg user     "${K8S_USER}" \
+        --arg endpoint "https://${api_dns_name}:${API_PORT}" \
+        --arg signal   "${COMPLETION_SIGNAL_FILE}" \
+        '{status:"success",cni:$cni,user:$user,api_endpoint:$endpoint,signal_file:$signal}'
+
+    log_info "=== Bootstrap complete ==="
 }
 
 # Execute main function

@@ -244,10 +244,6 @@ install_system_packages() {
 install_kubernetes_packages() {
     log_info "=== Installing Kubernetes Packages ==="
     
-    # Remove the conflicting package (add -y for non-interactive)
-    log_info "Removing conflicting cnitool-plugins package..."
-    apt-get remove -y cnitool-plugins || log_warn "cnitool-plugins not installed or removal failed"
-    
     # Clean up any partial installations
     log_info "Configuring partially installed packages..."
     dpkg --configure -a
