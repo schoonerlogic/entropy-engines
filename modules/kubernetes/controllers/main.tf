@@ -20,15 +20,16 @@ locals {
   # Network configuration
   aws_ami            = var.aws_ami
   subnet_ids         = var.subnet_ids
-  joined_subnet_ids  = join(" ", var.subnet_ids)
   pod_cidr_block     = var.pod_cidr_block
   service_cidr_block = var.service_cidr_block
 
   # NLB
-  vpc_id         = var.vpc_id
-  use_route53    = false
-  cluster_domain = "k8s.local"
-  api_dns_name   = "api.${local.cluster_name}.${local.cluster_domain}"
+  vpc_id            = var.vpc_id
+  joined_subnet_ids = join(" ", var.subnet_ids)
+  use_route53       = false
+  hosted_zone       = ""
+  cluster_domain    = "k8s.local"
+  api_dns_name      = "dev"
 
   # Security configuration
   environment          = var.environment
@@ -43,6 +44,10 @@ locals {
   # Control plane identification
   controller_tag_key   = "ClusterControllerType"
   controller_tag_value = "${local.cluster_name}-controller"
+
+  # CNI
+  cni_plugin         = "calico"
+  cni_plugin_version = "3.30"
 
   # SSM paths
   ssm_join_command_path    = "/entropy-engines/${local.cluster_name}/control-plane/join-command"
@@ -116,6 +121,16 @@ locals {
     use_route53    = local.use_route53
     cluster_domain = local.cluster_domain
     api_dns_name   = local.api_dns_name
+    hosted_zone_id = ""
+    aws_region     = data.aws_region.current.name
+  }
+
+  # install cni
+  install_cni_plugin_vars = {
+    k8s_user           = local.k8s_user
+    script_dir         = local.script_dir
+    cni_plugin         = local.cni_plugin
+    cni_plugin_version = local.cni_plugin_version
   }
 
   # Shared script variables
@@ -204,7 +219,7 @@ locals {
     "03-install-cni" = {
       script_path   = "${local.script_base_path}/controllers/04-install-cni.sh"
       env_path      = "${local.script_env_path}/controllers/04-install-cni.env.tftpl"
-      vars          = local.shared_env_vars
+      vars          = local.install_cni_plugin_vars
       s3_script_key = "scripts/controllers/04-install-cni.sh"
       s3_env_key    = "scripts/controllers/04-install-cni.env"
     }

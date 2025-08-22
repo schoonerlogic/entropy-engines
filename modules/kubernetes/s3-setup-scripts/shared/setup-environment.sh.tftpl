@@ -14,6 +14,10 @@ SCRIPT_DIR="${script_dir}"
 echo "$S3_BUCKET: $S3_BUCKET"
 echo "$NODE_TYPE: $NODE_TYPE"
 
+
+
+
+
 # =================================================================
 # ENVIRONMENT FILES DOWNLOAD AND VALIDATION
 # =================================================================
@@ -138,11 +142,138 @@ execute_setup_scripts() {
     fi
 }
 
+# Robust AWS CLI installation function for Ubuntu 22.04 ARM64
+# Usage: Can be called directly as user_data or sourced and called as function
+
+install_aws_cli_robust() {
+    exec > >(tee /var/log/user-data.log|logger -t user-data -s 2>/dev/console) 2>&1
+    set -e
+
+    echo "Starting AWS CLI installation at $(date)"
+
+    # Function to wait for apt lock to be released
+    wait_for_apt() {
+        local timeout=300
+        local count=0
+        echo "Waiting for apt lock to be released..."
+        
+        while fuser /var/lib/dpkg/lock-frontend >/dev/null 2>&1 || fuser /var/lib/apt/lists/lock >/dev/null 2>&1; do
+            if [ $count -ge $timeout ]; then
+                echo "Timeout waiting for apt lock"
+                return 1
+            fi
+            echo "Waiting for apt lock... ($count/$timeout)"
+            sleep 5
+            count=$((count + 5))
+        done
+        echo "APT lock released"
+    }
+
+    # Function to retry commands
+    retry() {
+        local retries=$1
+        local delay=$2
+        shift 2
+        local count=0
+        
+        until "$@"; do
+            exit_code=$?
+            count=$((count + 1))
+            if [ $count -lt $retries ]; then
+                echo "Command failed (attempt $count/$retries), retrying in $delay seconds..."
+                sleep $delay
+            else
+                echo "Command failed after $retries attempts"
+                return $exit_code
+            fi
+        done
+        return 0
+    }
+
+    # Wait for network connectivity
+    echo "Checking network connectivity..."
+    retry 12 10 ping -c 1 8.8.8.8
+
+    # Wait for apt to be available
+    wait_for_apt
+
+    # Disable automatic updates during our installation
+    systemctl stop unattended-upgrades 2>/dev/null || true
+    systemctl disable unattended-upgrades 2>/dev/null || true
+
+    # Kill any running apt processes (be careful with this)
+    pkill -f apt-get 2>/dev/null || true
+    pkill -f dpkg 2>/dev/null || true
+    sleep 5
+
+    # Wait again for apt lock
+    wait_for_apt
+
+    echo "Updating package lists..."
+    retry 3 30 apt-get update -y
+
+    echo "Installing prerequisites..."
+    retry 3 30 apt-get install -y curl unzip
+
+    # Check if AWS CLI is already installed
+    if command -v aws >/dev/null 2>&1; then
+        echo "AWS CLI already installed: $(aws --version)"
+        echo "Skipping installation"
+        return 0
+    fi
+
+    # Download AWS CLI with retries and verification
+    echo "Downloading AWS CLI v2 for ARM64..."
+    cd /tmp
+    retry 5 10 curl -L "https://awscli.amazonaws.com/awscli-exe-linux-aarch64.zip" -o "awscliv2.zip"
+
+    # Verify download
+    if [ ! -f "awscliv2.zip" ] || [ ! -s "awscliv2.zip" ]; then
+        echo "ERROR: AWS CLI download failed or file is empty"
+        return 1
+    fi
+
+    echo "Extracting AWS CLI..."
+    unzip -q awscliv2.zip
+
+    echo "Installing AWS CLI..."
+    ./aws/install
+
+    # Clean up
+    rm -rf awscliv2.zip aws/
+
+    # Create symlinks for easier access
+    ln -sf /usr/local/bin/aws /usr/bin/aws 2>/dev/null || true
+    ln -sf /usr/local/bin/aws_completer /usr/bin/aws_completer 2>/dev/null || true
+
+    # Verify installation
+    echo "Verifying AWS CLI installation..."
+    if /usr/local/bin/aws --version; then
+        echo "AWS CLI installed successfully: $(/usr/local/bin/aws --version)"
+    else
+        echo "ERROR: AWS CLI installation verification failed"
+        return 1
+    fi
+
+    # Re-enable automatic updates
+    systemctl enable unattended-upgrades 2>/dev/null || true
+    systemctl start unattended-upgrades 2>/dev/null || true
+
+    echo "AWS CLI installation completed successfully at $(date)"
+    return 0
+}
+
+
 # =================================================================
 # MAIN EXECUTION
 # =================================================================
 main() {
     echo "=== Starting EC2 Node Initialization ==="
+
+    if ! install_aws_cli_robust; then
+      echo "FATAL: Faile to load AWS CLI"
+      exit 1
+    fi
 
     if ! download_and_validate_environments; then
         echo "FATAL: Environment download/validation failed"

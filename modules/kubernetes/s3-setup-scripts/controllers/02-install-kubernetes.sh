@@ -274,7 +274,7 @@ store_join_information() {
     
     # Store in SSM Parameter Store
     log_info "Storing join command in SSM..."
-    if aws ssm put-parameter --name "${SSM_JOIN_COMMAND_PATH}" \
+    if aws ssm put-parameter --name "${SSM_JOIN_COMMAND_PATH}-${JOIN_CMD_SUFFIX}" \
          --value "${join_cmd}" --type "SecureString" --overwrite \
          --region "${INSTANCE_REGION}" >/dev/null 2>&1; then
         log_info "✅ Join command stored in SSM"
@@ -284,7 +284,7 @@ store_join_information() {
     fi
     
     log_info "Storing certificate key in SSM..."
-    if aws ssm put-parameter --name "${SSM_CERTIFICATE_KEY_PATH}" \
+    if aws ssm put-parameter --name "${SSM_CERTIFICATE_KEY_PATH}-${JOIN_CMD_SUFFIX}" \
          --value "${cert_key}" --type "SecureString" --overwrite \
          --region "${INSTANCE_REGION}" >/dev/null 2>&1; then
         log_info "✅ Certificate key stored in SSM"

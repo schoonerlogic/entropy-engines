@@ -50,17 +50,9 @@ fi
 # CONFIGURATION VARIABLES (from Terraform)
 # =================================================================
 readonly PRIMARY_PARAM="/k8s/${CLUSTER_NAME}/primary-controller-${JOIN_CMD_SUFFIX}"
-readonly NLB_PARAM="/k8s/${CLUSTER_NAME}/nlb-arn-${JOIN_CMD_SUFFIX}"
-readonly TARGET_GROUP_PARAM="/k8s/${CLUSTER_NAME}/target-group-arn-${JOIN_CMD_SUFFIX}"
-readonly DNS_PARAM="/k8s/${CLUSTER_NAME}/api-dns-name-${JOIN_CMD_SUFFIX}"
-
-# DNS and Load Balancer Configuration (set these in your master env file)
-readonly CLUSTER_DOMAIN="${CLUSTER_DOMAIN:-k8s.local}"
-readonly API_DNS_NAME="${API_DNS_NAME:-api.${CLUSTER_NAME}.${CLUSTER_DOMAIN}}"
-readonly HOSTED_ZONE_ID=""  # Optional - leave empty for dev environments
-readonly USE_ROUTE53="${USE_ROUTE53:-false}" # Set to true if you want Route53 DNS
-readonly VPC_ID="${VPC_ID}"                   # Set this in your env file
-readonly SUBNET_IDS="${SUBNET_IDS}"           # Comma-separated list of subnet IDs
+readonly NLB_PARAM="/k8s/${CLUSTER_NAME}/nlb-arn}"
+readonly TARGET_GROUP_PARAM="/k8s/${CLUSTER_NAME}/target-group-arn}"
+readonly DNS_PARAM="/${CLUSTER_NAME}/api-dns-name"
 
 # Kubernetes API port
 readonly API_PORT=6443
@@ -159,12 +151,12 @@ create_network_load_balancer() {
     # Create the NLB
     local nlb_arn=""
     if nlb_arn=$(aws elbv2 create-load-balancer \
-                   --name "${CLUSTER_NAME}-k8s-api-nlb" \
+                   --name "${CLUSTER_NAME}-nlb" \
                    --scheme internal \
                    --type network \
                    --ip-address-type ipv4 \
                    --subnets "${subnet_array[@]}" \
-                   --tags Key=Name,Value="${CLUSTER_NAME}-k8s-api-nlb" \
+                   --tags Key=Name,Value="${CLUSTER_NAME}-api-nlb" \
                           Key=Cluster,Value="${CLUSTER_NAME}" \
                           Key=Component,Value="kubernetes-api" \
                    --region "${INSTANCE_REGION}" \
@@ -183,7 +175,7 @@ create_network_load_balancer() {
             return 1
         fi
         
-        echo "${nlb_arn}"
+        echo ${nlb_arn}
         return 0
     else
         log_error "Failed to create Network Load Balancer"
@@ -223,9 +215,9 @@ create_target_group() {
     log_info "Creating Target Group for Kubernetes API..."
     
     # Create target group
-    local tg_arn=""
+    tg_arn=""
     if tg_arn=$(aws elbv2 create-target-group \
-                  --name "${CLUSTER_NAME}-k8s-api-tg" \
+                  --name "${CLUSTER_NAME}-tg" \
                   --protocol TCP \
                   --port ${API_PORT} \
                   --vpc-id "${VPC_ID}" \
@@ -235,7 +227,7 @@ create_target_group() {
                   --health-check-interval-seconds 10 \
                   --healthy-threshold-count 2 \
                   --unhealthy-threshold-count 2 \
-                  --tags Key=Name,Value="${CLUSTER_NAME}-k8s-api-tg" \
+                  --tags Key=Name,Value="${CLUSTER_NAME}-tg" \
                          Key=Cluster,Value="${CLUSTER_NAME}" \
                          Key=Component,Value="kubernetes-api" \
                   --region "${INSTANCE_REGION}" \
@@ -254,7 +246,7 @@ create_target_group() {
             return 1
         fi
         
-        echo "${tg_arn}"
+        echo ${tg_arn}
         return 0
     else
         log_error "Failed to create Target Group"
@@ -328,7 +320,7 @@ register_controller_instances() {
     
     local controller_instances=""
     controller_instances=$(aws ec2 describe-instances \
-                            --filters "Name=tag:Cluster,Values=${CLUSTER_NAME}" \
+                            --filters "Name=tag:ClusterControllerType,Values=${CLUSTER_NAME}-controller" \
                                      "Name=tag:Role,Values=controller" \
                                      "Name=instance-state-name,Values=running" \
                             --query 'Reservations[].Instances[].InstanceId' \
@@ -613,14 +605,18 @@ main() {
     
     # Create Network Load Balancer
     local nlb_arn=""
-    if ! nlb_arn=$(create_network_load_balancer); then
+    if nlb_arn=$(create_network_load_balancer); then
+        log_info "Got NLB_ARN: ${nlb_arn}"
+    else
         log_error "Failed to create Network Load Balancer"
         return 1
     fi
     
     # Create Target Group
     local tg_arn=""
-    if ! tg_arn=$(create_target_group "${nlb_arn}"); then
+    if tg_arn=$(create_target_group "${nlb_arn}"); then
+        log_info "Got TG_ARN: ${tg_arn}"
+    else
         log_error "Failed to create Target Group"
         return 1
     fi

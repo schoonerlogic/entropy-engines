@@ -19,7 +19,7 @@ if [ -f "${SCRIPT_DIR}/00-shared-functions.sh" ]; then
         exit 1
     fi
 else
-    echo "ERROR: Cannot find shared functions file: ${SCRIPT_DIR}/00-shared-functions.sh"
+    echo "ERROR: Canggggnot find shared functions file: ${SCRIPT_DIR}/00-shared-functions.sh"
     exit 1
 fi
 
@@ -27,7 +27,7 @@ setup_logging "install-cni"
 
 log_info "Starting K8s setup with log level: ${LOG_LEVEL}"
 
-if [ -z "$SYSTEM_PREPARED" ] && [ ! -f "/tmp/.system_prepared" ]; then
+if [ -z "${SYSTEM_PREPARED}" ] && [ ! -f "/tmp/.system_prepared" ]; then
     log_info "System not yet prepared, running preparation..."
     prepare_system_once
 else
@@ -35,25 +35,14 @@ else
 fi
 
 
-
 # =================================================================
 # CONFIGURATION VARIABLES (from Terraform)
 # =================================================================
-readonly TARGET_K8S_USER="$k8s_user"
-CNI_PLUGIN="calico"
-
-# Set CNI version with fallback  
-CNI_VERSION="$cni_version}"
-if [ -z "$CNI_VERSION" ]; then
-    CNI_VERSION="v3.27.0"
-fi
-readonly CNI_VERSION
-
 readonly KUBECONFIG_PATH="/etc/kubernetes/admin.conf"
 readonly COMPLETION_SIGNAL_FILE="/tmp/terraform_bootstrap_complete"
 
 log_info "=== CNI Installation and Cluster Finalization Started ==="
-log_info "Target User: ${TARGET_K8S_USER}"
+log_info "Target User: ${K8S_USER}"
 log_info "CNI Plugin: ${CNI_PLUGIN}"
 log_info "CNI Version: ${CNI_VERSION}"
 
@@ -82,6 +71,7 @@ verify_cluster_accessibility() {
             log_info "✅ Cluster is accessible"
             
             # Show cluster info for logging
+            aws_region     = data.aws_region.current.name
             log_info "Cluster information:"
             kubectl cluster-info | while IFS= read -r line; do
                 log_info "  $line"
@@ -260,32 +250,32 @@ wait_for_nodes_ready() {
 setup_user_kubectl_config() {
     log_info "=== Setting up kubectl Configuration for User ==="
     
-    log_info "Configuring kubectl for user: ${TARGET_K8S_USER}"
+    log_info "Configuring kubectl for user: ${K8S_USER}"
     
     # Verify user exists
-    if ! id "${TARGET_K8S_USER}" &>/dev/null; then
-        log_warn "User ${TARGET_K8S_USER} does not exist, skipping kubectl setup"
+    if ! id "${K8S_USER}" &>/dev/null; then
+        log_warn "User ${K8S_USER} does not exist, skipping kubectl setup"
         return 0
     fi
     
-    log_info "✅ User ${TARGET_K8S_USER} exists"
+    log_info "✅ User ${K8S_USER} exists"
     
     # Get user information
     local target_uid=""
     local target_gid=""
     
-    if ! target_uid=$(id -u "${TARGET_K8S_USER}" 2>/dev/null); then
-        log_error "Failed to get UID for user ${TARGET_K8S_USER}"
+    if ! target_uid=$(id -u "${K8S_USER}" 2>/dev/null); then
+        log_error "Failed to get UID for user ${K8S_USER}"
         return 1
     fi
     
-    if ! target_gid=$(id -g "${TARGET_K8S_USER}" 2>/dev/null); then
-        log_error "Failed to get GID for user ${TARGET_K8S_USER}"
+    if ! target_gid=$(id -g "${K8S_USER}" 2>/dev/null); then
+        log_error "Failed to get GID for user ${K8S_USER}"
         return 1
     fi
     
     # Set up kubectl config
-    local kube_dir="/home/${TARGET_K8S_USER}/.kube"
+    local kube_dir="/home/${K8S_USER}/.kube"
     local kube_config="${kube_dir}/config"
     
     log_info "Creating kubectl directory: ${kube_dir}"
@@ -308,11 +298,11 @@ setup_user_kubectl_config() {
     chmod 700 "${kube_dir}"
     chmod 600 "${kube_config}"
     
-    log_info "✅ kubectl configured successfully for user ${TARGET_K8S_USER}"
+    log_info "✅ kubectl configured successfully for user ${K8S_USER}"
     
     # Test the configuration as the user
-    log_info "Testing kubectl access for user ${TARGET_K8S_USER}..."
-    if sudo -u "${TARGET_K8S_USER}" kubectl get nodes >/dev/null 2>&1; then
+    log_info "Testing kubectl access for user ${K8S_USER}..."
+    if sudo -u "${K8S_USER}" kubectl get nodes >/dev/null 2>&1; then
         log_info "✅ User can successfully access cluster with kubectl"
     else
         log_warn "User may not be able to access cluster (this could be normal if CNI is still starting)"
@@ -337,7 +327,7 @@ create_completion_signal() {
 # Generated at: $(date)
 # User: $(whoami)
 # CNI Plugin: ${CNI_PLUGIN}
-# Target User: ${TARGET_K8S_USER}
+# Target User: ${K8S_USER}
 # Cluster Status: Ready
 EOF
     
@@ -416,7 +406,7 @@ main() {
     log_info "=== CNI Installation and Cluster Finalization Completed Successfully ==="
     log_info "✅ CNI Plugin (${CNI_PLUGIN}) installed and ready"
     log_info "✅ All nodes are ready"
-    log_info "✅ kubectl configured for user: ${TARGET_K8S_USER}"
+    log_info "✅ kubectl configured for user: ${K8S_USER}"
     log_info "✅ Completion signal created: ${COMPLETION_SIGNAL_FILE}"
     log_info "✅ Cluster is fully operational"
     

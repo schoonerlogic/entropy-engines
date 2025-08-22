@@ -89,7 +89,7 @@ setup_logging() {
     export DEBUG_LOG_PATH="$debug_log_path"
     export TRACE_LOG_PATH="$trace_log_path"
     export LOG_LEVEL="$LOG_LEVEL"
-    
+     
     # Touch log files to ensure they exist
     touch "$full_log_path" "$error_log_path" 2>/dev/null || true
 }
@@ -124,7 +124,7 @@ log_info() {
         return 0
     else
         if [ -n "$MAIN_LOG_PATH" ] 2>/dev/null; then
-            echo "$message" | tee -a "$MAIN_LOG_PATH"
+            echo "$message" | tee -a "$MAIN_LOG_PATH" >&2
         else
             echo "$message"
         fi

@@ -78,7 +78,8 @@ for script in "${SCRIPTS[@]}"; do
     fi
 done
 
-log_info "=== Kubernetes Setup Completed Successfully at $(date) ==="
+log_inf o"=== Kubernetes Setup Completed Successfully at $(date) ==="
+rt 
 
 # Final log message with fallback
 if [ -n "$MAIN_LOG_PATH" ]; then
