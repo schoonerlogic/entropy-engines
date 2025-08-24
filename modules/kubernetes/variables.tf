@@ -13,19 +13,19 @@ variable "core_config" {
   })
 }
 
-variable "cluster_name" {
-  description = "The name of the Kubernetes cluster"
-  type        = string
-  default     = null # Allow this to be optional since it can come from kubernetes_config
-}
-
-variable "aws_region" {
-  description = "AWS region for deployment"
-  type = object({
-    name = string
-  })
-}
-
+# variable "cluster_name" {
+#   description = "The name of the Kubernetes cluster"
+#   type        = string
+#   default     = null # Allow this to be optional since it can come from kubernetes_config
+# }
+#
+# variable "aws_region" {
+#   description = "AWS region for deployment"
+#   type = object({
+#     name = string
+#   })
+# }
+#
 variable "log_level" {
   description = "Log verbosity level"
   type        = string
@@ -168,6 +168,36 @@ variable "network_config" {
   - skip_bucket_validation: Bypass bucket readiness checks (not recommended)
   - bucket_retry_timeout: Timeout in seconds for bucket validation
   EOT
+}
+
+variable "use_route53" {
+  description = "For larger clusters"
+  type        = string
+  default     = false
+}
+
+variable "hosted_zone" {
+  description = "Needed for route53"
+  type        = string
+  default     = ""
+}
+
+variable "cluster_domain" {
+  description = "Indicate env"
+  type        = string
+  default     = "k8s.local"
+}
+
+variable "api_dns_name" {
+  description = "Used with k8s and nlb"
+  type        = string
+  default     = "dev"
+}
+
+variable "api_port" {
+  description = "k8s nlb port"
+  type        = string
+  default     = "6443"
 }
 
 #===============================================================================

@@ -26,10 +26,13 @@ locals {
   # NLB
   vpc_id            = var.vpc_id
   joined_subnet_ids = join(" ", var.subnet_ids)
-  use_route53       = false
-  hosted_zone       = ""
-  cluster_domain    = "k8s.local"
-  api_dns_name      = "dev"
+  use_route53       = var.use_route53
+  hosted_zone       = var.hosted_zone
+  cluster_domain    = var.cluster_domain
+  api_dns_name      = var.api_dns_name
+  api_port          = var.api_port
+  nlb_arn           = var.nlb_arn
+  target_group_arn  = var.target_group_arn
 
   # Security configuration
   environment          = var.environment
@@ -116,13 +119,16 @@ locals {
 
   # setup NLB
   setup_load_balancer_vars = {
-    vpc_id         = local.vpc_id
-    subnet_ids     = local.joined_subnet_ids
-    use_route53    = local.use_route53
-    cluster_domain = local.cluster_domain
-    api_dns_name   = local.api_dns_name
-    hosted_zone_id = ""
-    aws_region     = data.aws_region.current.name
+    vpc_id           = local.vpc_id
+    subnet_ids       = local.joined_subnet_ids
+    use_route53      = local.use_route53
+    cluster_domain   = local.cluster_domain
+    api_dns_name     = local.api_dns_name
+    hosted_zone_id   = ""
+    aws_region       = data.aws_region.current.name
+    nlb_arn          = local.nlb_arn
+    target_group_arn = local.target_group_arn
+    api_port         = local.api_port
   }
 
   # install cni

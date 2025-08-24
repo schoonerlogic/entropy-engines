@@ -24,9 +24,6 @@ module "kubernetes" {
   # AMIi
   aws_ami = data.aws_ami.ubuntu.id
 
-  # AWS region (as object since module expects this)
-  aws_region = data.aws_region.current
-
   # S3 bucket name
   k8s_scripts_bucket_name = module.aws_infrastructure.k8s_scripts_bucket_name
 
@@ -64,6 +61,7 @@ module "kubernetes" {
   depends_on = [module.aws_infrastructure]
 }
 
+
 module "ssh_config" {
   source = "./modules/ssh-config"
 
@@ -77,3 +75,4 @@ module "ssh_config" {
   worker_gpu_private_ips = length(module.kubernetes.gpu_instance_private_ips) > 0 ? module.kubernetes.gpu_instance_private_ips[0] : []
   worker_cpu_private_ips = length(module.kubernetes.cpu_instance_private_ips) > 0 ? module.kubernetes.cpu_instance_private_ips[0] : []
 }
+

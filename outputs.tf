@@ -67,3 +67,4 @@ output "k8s_scripts_bucket" {
   sensitive   = false
 }
 
+

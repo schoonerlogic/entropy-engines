@@ -311,9 +311,10 @@ update_kubeconfig_for_dns() {
     trap 'rm -f "$tmp"' EXIT         # always clean up
 
     cp "$kubeconfig" "$tmp"
-    kubectl config set-cluster "$(kubectl config current-cluster --kubeconfig="$tmp")" \
-        --server="https://${target_dns_name}:6443" \
-        --kubeconfig="$tmp" >/dev/null
+    cluster_name=$(kubectl config view --kubeconfig="$tmp" -o jsonpath='{.clusters[0].name}')
+    kubectl config set-cluster "$cluster_name" \
+      --server="https://${target_dns_name}:6443" \
+      --kubeconfig="$tmp" >/dev/null
 
     mv "$tmp" "$kubeconfig"          # atomic
     chown root:root "$kubeconfig"

@@ -118,6 +118,45 @@ variable "security_group_ids" {
 }
 
 #===============================================================================
+# NLB
+#===============================================================================
+variable "api_port" {
+  description = "k8s nlb port"
+  type        = string
+}
+
+variable "use_route53" {
+  description = "For larger clusters"
+  type        = string
+}
+
+variable "hosted_zone" {
+  description = "Needed for route53"
+  type        = string
+}
+
+variable "cluster_domain" {
+  description = "Indicate env"
+  type        = string
+}
+
+variable "api_dns_name" {
+  description = "Used with k8s and nlb"
+  type        = string
+}
+
+variable "nlb_arn" {
+  description = "Stored in SSM"
+  type        = string
+}
+
+variable "target_group_arn" {
+  description = "Store in SSM"
+  type        = string
+}
+
+
+#===============================================================================
 # IAM
 #===============================================================================
 

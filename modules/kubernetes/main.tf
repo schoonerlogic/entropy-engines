@@ -20,13 +20,23 @@ locals {
   ssm_join_command_path    = var.kubernetes_config.ssm_join.ssm_join_command_path
   ssm_certificate_key_path = var.kubernetes_config.ssm_join.ssm_certificate_key_path
 
-
   pod_cidr_block     = var.pod_cidr_block
   service_cidr_block = var.service_cidr_block
 
   vpc_id             = var.network_config.vpc_id
   subnet_ids         = var.network_config.subnet_ids
   security_group_ids = var.security_config.security_group_ids
+
+  # nlb
+  nlb_param          = "/k8s/${local.cluster_name}/nlb-arn"
+  target_group_param = "/k8s/${local.cluster_name}/target-group-arn"
+  dns_param          = "/${local.cluster_name}/api-dns-name"
+  api_port           = var.api_port
+  use_route53        = var.use_route53
+  hosted_zone        = var.hosted_zone
+  cluster_domain     = var.cluster_domain
+  api_dns_name       = var.api_dns_name
+
 
   # S3
   k8s_scripts_bucket_name = var.k8s_scripts_bucket_name
@@ -110,6 +120,15 @@ module "controllers" {
   vpc_id             = local.vpc_id
   subnet_ids         = local.subnet_ids
   security_group_ids = local.security_group_ids
+
+  # NLB
+  api_port         = local.api_port
+  use_route53      = local.use_route53
+  hosted_zone      = local.hosted_zone
+  cluster_domain   = local.cluster_domain
+  nlb_arn          = aws_ssm_parameter.nlb_arn.value
+  target_group_arn = aws_ssm_parameter.target_group_arn.value
+  api_dns_name     = aws_ssm_parameter.target_group_arn.value
 
   # IAM
   control_plane_role_name = local.ctrl_config.control_plane_role_name
@@ -415,4 +434,98 @@ module "gpu_workers" {
     },
     var.worker_config.additional_tags
   )
+}
+
+
+# ----------------------------------------------------------------------
+# Network Load Balancer
+# ----------------------------------------------------------------------
+resource "aws_lb" "k8s_api_nlb" {
+  name               = "${local.cluster_name}-nlb"
+  internal           = true
+  load_balancer_type = "network"
+  subnets            = local.subnet_ids
+
+  enable_cross_zone_load_balancing = true
+
+  tags = {
+    Name      = "${local.cluster_name}-api-nlb"
+    Component = "kubernetes-api"
+  }
+}
+
+# ----------------------------------------------------------------------
+# Target Group
+# ----------------------------------------------------------------------
+resource "aws_lb_target_group" "k8s_api_tg" {
+  name        = "${local.cluster_name}-tg"
+  port        = local.api_port
+  protocol    = "TCP"
+  vpc_id      = local.vpc_id
+  target_type = "instance"
+
+  health_check {
+    protocol            = "TCP"
+    port                = local.api_port
+    healthy_threshold   = 2
+    unhealthy_threshold = 2
+    interval            = 10
+  }
+
+  tags = {
+    Name      = "${local.cluster_name}-tg"
+    Component = "kubernetes-api"
+  }
+}
+
+# ----------------------------------------------------------------------
+# Listener
+# ----------------------------------------------------------------------
+resource "aws_lb_listener" "k8s_api_listener" {
+  load_balancer_arn = aws_lb.k8s_api_nlb.arn
+  port              = local.api_port
+  protocol          = "TCP"
+
+  default_action {
+    type             = "forward"
+    target_group_arn = aws_lb_target_group.k8s_api_tg.arn
+  }
+}
+
+# ----------------------------------------------------------------------
+# Route 53 alias (only if enabled)
+# ----------------------------------------------------------------------
+resource "aws_route53_record" "k8s_api_alias" {
+  count = local.use_route53 ? 1 : 0
+
+  zone_id = local.hosted_zone
+  name    = local.api_dns_name
+  type    = "A"
+
+  alias {
+    name                   = aws_lb.k8s_api_nlb.dns_name
+    zone_id                = aws_lb.k8s_api_nlb.zone_id
+    evaluate_target_health = false
+  }
+}
+
+# ----------------------------------------------------------------------
+# SSM parameters so your Bash script can read them unchanged
+# ----------------------------------------------------------------------
+resource "aws_ssm_parameter" "nlb_arn" {
+  name  = local.nlb_param
+  type  = "String"
+  value = aws_lb.k8s_api_nlb.arn
+}
+
+resource "aws_ssm_parameter" "target_group_arn" {
+  name  = local.target_group_param
+  type  = "String"
+  value = aws_lb_target_group.k8s_api_tg.arn
+}
+
+resource "aws_ssm_parameter" "api_dns_name" {
+  name  = local.dns_param
+  type  = "String"
+  value = local.use_route53 ? var.api_dns_name : aws_lb.k8s_api_nlb.dns_name
 }
